@@ -8,10 +8,12 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"net/url"
 
-	"github.com/go-git/go-git/v5"
+	"github.com/briandowns/spinner"
+	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 )
 
@@ -21,16 +23,21 @@ var installCmd = &cobra.Command{
 	Short: "Install Packages",
 	Long:  `Install Official Packages or Custom Packages From Git Repositories From GitLab Or Github`,
 	Run: func(cmd *cobra.Command, args []string) {
-		if len(args[0]) == 0 {
+		if len(args) == 0 {
 			fmt.Println("Please provide a package to install, it can either be a custom package from github, gitlab, etc or a official package")
 			os.Exit(1)
 		}
+		var foundPkg bool = false
 		verbose, err := cmd.Flags().GetString("verbose")
+		pyexec, err := cmd.Flags().GetString("python-exec")
+
 		if err != nil {
 
 			panic(err)
 		}
 		location, err := os.Executable()
+		//redefine location so that it is the directory of the executable
+		location = location[:len(location)-len("ferment")]
 		if err != nil {
 
 			panic(err)
@@ -43,25 +50,30 @@ var installCmd = &cobra.Command{
 			if verbose == "true" {
 				fmt.Println("Searching for package in default list")
 			}
-
-		} else {
-			args[0] = strings.Split(args[0], "https://")[1]
-		}
-		location = strings.Split(location, "/ferment")[0]
-		location = fmt.Sprintf("%s/PKG/%s/", location, args[0])
-		_, err = git.PlainClone(location, false, &git.CloneOptions{
-			URL: "https://" + args[0],
-		})
-		if verbose == "true" {
-			fmt.Println("Cloned Repository")
-		}
-		if err != nil {
-			if strings.Contains(err.Error(), "already exists") {
-				fmt.Println("Package already exists")
+			files, err := os.ReadDir(fmt.Sprintf("%s/Barrells", location))
+			if err != nil {
+				panic(err)
+			}
+			for _, v := range files {
+				if strings.Split(v.Name(), ".")[0] == args[0] {
+					if verbose == "true" {
+						fmt.Println("Found package in default list")
+					}
+					foundPkg = true
+					break
+				}
+			}
+			if !foundPkg {
+				fmt.Println("Package not found in default list or https URL invalid")
 				os.Exit(1)
 			}
-			fmt.Println(err)
+
 		}
+		s := spinner.New(spinner.CharSets[2], 100*time.Millisecond) // Build our new spinner
+		s.Suffix = color.GreenString(" Downloading Source...")
+		s.Start()
+		time.Sleep(4 * time.Second) // Run for some time to simulate work
+		s.Stop()
 
 	},
 }
@@ -69,6 +81,7 @@ var installCmd = &cobra.Command{
 func init() {
 	rootCmd.AddCommand(installCmd)
 	installCmd.PersistentFlags().StringP("verbose", "v", "", "Log All Output")
+	installCmd.PersistentFlags().String("python-exec", "/usr/bin/python3", "Python Executable Location")
 	installCmd.Flag("verbose").NoOptDefVal = "true"
 
 	// Here you will define your flags and configuration settings.
