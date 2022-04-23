@@ -13,7 +13,7 @@ class bitgit(Barrells):
         self.dependencies=["go", "btest"]
         self.binary="bit"
     def install(self):
-        subprocess.run(["go", "build"], flags=f"-X main.version=v{self.version}", cwd=self.cwd)
+        subprocess.run(["go", "build"], cwd=self.cwd)
         return True
     def uninstall(self):
         subprocess.run(["rm", "-rf", self.cwd])

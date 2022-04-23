@@ -147,7 +147,7 @@ func DownloadFromGithub(url string, path string, verbose string) error {
 	})
 	if err != nil {
 		if strings.Contains(err.Error(), "exists") {
-			return fmt.Errorf("Package already exists")
+			return fmt.Errorf("package already exists")
 		}
 		panic(err)
 	}
@@ -283,6 +283,11 @@ func installPackages(pkg string, verbose string) {
 		}
 
 	}
+	s := spinner.New(spinner.CharSets[36], 100*time.Millisecond)
+	s.Suffix = " Installing " + pkg
+	s.Start()
+	RunInstallationScript(pkg, verbose, pkg)
+	s.Stop()
 
 }
 func GetGitURL(pkg string, verbose string) string {
@@ -348,7 +353,7 @@ func DownloadFromTar(pkg string, url string, verbose string) string {
 	if verbose == "true" {
 		fmt.Println("Extracting Tar")
 	}
-	path, err := Untar(fmt.Sprintf("%s/Installed/", location), resp.Body)
+	path, err := Untar(fmt.Sprintf("%s/Installed/", location), resp.Body, pkg)
 	if err != nil {
 		fmt.Println(color.RedString("Unable to extract %s", pkg))
 		panic(err)
@@ -399,7 +404,7 @@ func GetDownloadUrl(pkg string, verbose string) string {
 	path := DownloadFromTar(pkg, strings.Replace(buf.String(), "\n", "", -1), verbose)
 	return path
 }
-func Untar(dst string, r io.Reader) (string, error) {
+func Untar(dst string, r io.Reader, pkg string) (string, error) {
 
 	gzr, err := gzip.NewReader(r)
 	if err != nil {
@@ -428,6 +433,7 @@ func Untar(dst string, r io.Reader) (string, error) {
 		}
 
 		// the target location where the dir/file should be created
+		header.Name = fmt.Sprintf("%s/%s", pkg, strings.Join(strings.Split(header.Name, "/")[1:], "/"))
 		target := filepath.Join(dst, header.Name)
 
 		// the following switch could also be done using fi.Mode(), not sure if there
@@ -461,10 +467,40 @@ func Untar(dst string, r io.Reader) (string, error) {
 			f.Close()
 		}
 	}
-	name, _ := tr.Next()
-	path := strings.Split(name.Name, "/")[0]
-	return path, nil
 }
-func RunInstallationScript(pkg string, verbose string) {
+func RunInstallationScript(pkg string, verbose string, cwd string) {
+	if verbose == "true" {
+		fmt.Println("Running Installation Script")
+	}
+	location, err := os.Executable()
+	location = location[:len(location)-len("/ferment")]
+	if err != nil {
+		panic(err)
+	}
+	content, err := os.ReadFile(fmt.Sprintf("%s/Barrells/%s.py", location, strings.ToLower(pkg)))
+	if err != nil {
+		panic(err)
+	}
+	cmd := exec.Command("python3")
+	closer, err := cmd.StdinPipe()
+	if err != nil {
+		panic(err)
+	}
+	defer closer.Close()
+	if verbose == "true" {
+		fmt.Println("Starting STDIN pipe")
+	}
+	_, w, _ := os.Pipe()
+	cmd.Stdout = w
+	cmd.Dir = fmt.Sprintf("%s/Barrells", location)
+	cmd.Start()
+	closer.Write(content)
+	closer.Write([]byte("\n"))
+	io.WriteString(closer, fmt.Sprintf("pkg=%s()\n", strings.ToLower(pkg)))
+	io.WriteString(closer, fmt.Sprintf(`pkg.cwd="%s/Installed/%s"`+"\n", location, cwd))
+	io.WriteString(closer, "pkg.install()\n")
+	closer.Close()
+	w.Close()
+	cmd.Wait()
 
 }
