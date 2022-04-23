@@ -5,15 +5,23 @@ Copyright © 2022 NAME HERE <EMAIL ADDRESS>
 package cmd
 
 import (
+	"bytes"
 	"fmt"
+	"io"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
+	"archive/tar"
+	"compress/gzip"
+	"net/http"
 	"net/url"
 
 	"github.com/briandowns/spinner"
 	"github.com/fatih/color"
+	"github.com/go-git/go-git/v5"
 	"github.com/spf13/cobra"
 )
 
@@ -29,7 +37,6 @@ var installCmd = &cobra.Command{
 		}
 		var foundPkg bool = false
 		verbose, err := cmd.Flags().GetString("verbose")
-		pyexec, err := cmd.Flags().GetString("python-exec")
 
 		if err != nil {
 
@@ -54,8 +61,10 @@ var installCmd = &cobra.Command{
 			if err != nil {
 				panic(err)
 			}
+
 			for _, v := range files {
-				if strings.Split(v.Name(), ".")[0] == args[0] {
+				name := strings.ToLower(v.Name())
+				if strings.Split(name, ".")[0] == strings.ToLower(args[0]) {
 					if verbose == "true" {
 						fmt.Println("Found package in default list")
 					}
@@ -72,8 +81,29 @@ var installCmd = &cobra.Command{
 		s := spinner.New(spinner.CharSets[2], 100*time.Millisecond) // Build our new spinner
 		s.Suffix = color.GreenString(" Downloading Source...")
 		s.Start()
-		time.Sleep(4 * time.Second) // Run for some time to simulate work
+		if !foundPkg {
+			DownloadFromGithub(args[0], fmt.Sprintf("%s/Installed/%s", location, strings.Split(args[0], "https://")[1]), verbose)
+		}
 		s.Stop()
+		if UsingGit(args[0], verbose) {
+			s := spinner.New(spinner.CharSets[2], 100*time.Millisecond) // Build our new spinner
+			s.Suffix = color.GreenString(" Downloading Source...")
+			s.Start()
+			url := GetGitURL(args[0], verbose)
+			err := DownloadFromGithub(url, fmt.Sprintf("%s/Installed/%s", location, strings.Split(url, "https://")[1]), verbose)
+			if err != nil {
+				s.Stop()
+				fmt.Println(color.RedString(err.Error()))
+				fmt.Println(color.RedString("Aborting"))
+				os.Exit(1)
+			}
+			s.Stop()
+			s = spinner.New(spinner.CharSets[2], 100*time.Millisecond) // Build our new spinner
+			s.Suffix = color.GreenString(" Installing Package...")
+
+			installPackages(args[0], verbose)
+
+		}
 
 	},
 }
@@ -81,7 +111,6 @@ var installCmd = &cobra.Command{
 func init() {
 	rootCmd.AddCommand(installCmd)
 	installCmd.PersistentFlags().StringP("verbose", "v", "", "Log All Output")
-	installCmd.PersistentFlags().String("python-exec", "/usr/bin/python3", "Python Executable Location")
 	installCmd.Flag("verbose").NoOptDefVal = "true"
 
 	// Here you will define your flags and configuration settings.
@@ -97,4 +126,270 @@ func init() {
 func IsUrl(str string) bool {
 	u, err := url.Parse(str)
 	return (err == nil && u.Scheme != "" && u.Host != "")
+}
+func DownloadFromGithub(url string, path string, verbose string) error {
+	if verbose == "true" {
+		fmt.Println("Downloading from Github")
+	}
+	_, err := git.PlainClone(path, false, &git.CloneOptions{
+		URL: url,
+	})
+	if err != nil {
+		if strings.Contains(err.Error(), "exists") {
+			return fmt.Errorf("Package already exists")
+		}
+		panic(err)
+	}
+	if verbose == "true" {
+		fmt.Println("Downloaded from Github")
+	}
+	return nil
+}
+func UsingGit(pkg string, verbose string) bool {
+	location, err := os.Executable()
+	if err != nil {
+		panic(err)
+	}
+	location = location[:len(location)-len("ferment")]
+	content, err := os.ReadFile(fmt.Sprintf("%sBarrells/%s.py", location, strings.ToLower(pkg)))
+	if err != nil {
+		if strings.Contains(err.Error(), "no such file or directory") {
+			fmt.Println(color.RedString("Reinstall ferment, Barrells is missing"))
+			os.Exit(1)
+		}
+		panic(err)
+	}
+	cmd := exec.Command("python3")
+	closer, err := cmd.StdinPipe()
+	if err != nil {
+		panic(err)
+	}
+	defer closer.Close()
+	if verbose == "true" {
+		fmt.Println("Starting STDIN pipe")
+	}
+	old := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	cmd.Dir = fmt.Sprintf("%s/Barrells", location)
+	cmd.Start()
+	closer.Write(content)
+	closer.Write([]byte("\n"))
+	io.WriteString(closer, fmt.Sprintf("pkg=%s()\n", strings.ToLower(pkg)))
+	io.WriteString(closer, "print(pkg.git)\n")
+	closer.Close()
+	w.Close()
+	cmd.Wait()
+	os.Stdout = old
+	var buf bytes.Buffer
+	io.Copy(&buf, r)
+	return buf.String() == "True\n"
+	//fmt.Println(out)
+
+}
+func installPackages(pkg string, verbose string) {
+	if verbose == "true" {
+		fmt.Println("Looking For Dependencies")
+	}
+	//Variables
+	old := os.Stdout
+	location, err := os.Executable()
+	if err != nil {
+		panic(err)
+	}
+	location = location[:len(location)-len("/ferment")]
+	content, err := os.ReadFile(fmt.Sprintf("%s/Barrells/%s.py", location, strings.ToLower(pkg)))
+	if err != nil {
+		if strings.Contains(err.Error(), "no such file or directory") {
+			fmt.Println(color.RedString("Reinstall ferment, Barrells is missing"))
+			os.Exit(1)
+		}
+		panic(err)
+	}
+	cmd := exec.Command("python3")
+	closer, err := cmd.StdinPipe()
+	if err != nil {
+		panic(err)
+	}
+	defer closer.Close()
+	if verbose == "true" {
+		fmt.Println("Starting STDIN pipe")
+	}
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	cmd.Dir = fmt.Sprintf("%s/Barrells", location)
+	cmd.Start()
+	closer.Write(content)
+	closer.Write([]byte("\n"))
+	io.WriteString(closer, fmt.Sprintf("pkg=%s()\n", strings.ToLower(pkg)))
+	io.WriteString(closer, "print(pkg.dependencies)\n")
+	closer.Close()
+	w.Close()
+	cmd.Wait()
+	os.Stdout = old
+	var buf bytes.Buffer
+	io.Copy(&buf, r)
+	dependencies := strings.Split(buf.String(), "\n")[0]
+	dependencies = strings.Replace(dependencies, "[", "", 1)
+	dependencies = strings.Replace(dependencies, "]", "", 1)
+	dependencies = strings.Replace(dependencies, " ", "", -1)
+	dependencies = strings.Replace(dependencies, "'", "", -1)
+	dependenciesArr := strings.Split(dependencies, ",")
+	//run a function for each dependecy in dependenciesArr
+	for _, dep := range dependenciesArr {
+		fmt.Printf(color.YellowString("Package %s depends on %s\n"), pkg, dep)
+		cmd := exec.Command("which", strings.ReplaceAll(dep, "'", ""))
+		r, w, err := os.Pipe()
+		if err != nil {
+			panic(err)
+		}
+		cmd.Stdout = w
+		cmd.Start()
+		w.Close()
+		cmd.Wait()
+		var buf bytes.Buffer
+		io.Copy(&buf, r)
+		if buf.String() != "" {
+			fmt.Printf(color.YellowString("%s is already installed\n"), dep)
+			fmt.Println(color.YellowString("Skipping"))
+			continue
+		}
+		fmt.Printf(color.YellowString("Now Downloading %s\n"), dep)
+
+	}
+
+}
+func GetGitURL(pkg string, verbose string) string {
+	if verbose == "true" {
+		fmt.Println("Looking For GitURl")
+	}
+	//Variables
+	location, err := os.Executable()
+	if err != nil {
+		panic(err)
+	}
+	location = location[:len(location)-len("/ferment")]
+	content, err := os.ReadFile(fmt.Sprintf("%s/Barrells/%s.py", location, strings.ToLower(pkg)))
+	if err != nil {
+		if strings.Contains(err.Error(), "no such file or directory") {
+			fmt.Println(color.RedString("Reinstall ferment, Barrells is missing"))
+			os.Exit(1)
+		}
+		panic(err)
+	}
+	cmd := exec.Command("python3")
+	closer, err := cmd.StdinPipe()
+	if err != nil {
+		panic(err)
+	}
+	defer closer.Close()
+	if verbose == "true" {
+		fmt.Println("Starting STDIN pipe")
+	}
+	r, w, _ := os.Pipe()
+	cmd.Stdout = w
+	cmd.Stderr = os.Stderr
+	cmd.Dir = fmt.Sprintf("%s/Barrells", location)
+	cmd.Start()
+	closer.Write(content)
+	closer.Write([]byte("\n"))
+	io.WriteString(closer, fmt.Sprintf("pkg=%s()\n", strings.ToLower(pkg)))
+	io.WriteString(closer, "print(pkg.url)\n")
+	closer.Close()
+	w.Close()
+	cmd.Wait()
+	var buf bytes.Buffer
+	io.Copy(&buf, r)
+	return buf.String()
+
+}
+func DownloadFromTar(pkg string, url string, verbose string) {
+	resp, err := http.Get(url)
+	if err != nil {
+		fmt.Println(color.RedString("Unable to download %s", pkg))
+		panic(err)
+	}
+	location, err := os.Executable()
+	location = location[:len(location)-len("/ferment")]
+	if err != nil {
+		fmt.Println(color.RedString("Unable to download %s", pkg))
+		panic(err)
+	}
+	defer resp.Body.Close()
+	if verbose == "true" {
+		fmt.Printf("Downloading Tar From %s\n", url)
+	}
+	if verbose == "true" {
+		fmt.Println("Extracting Tar")
+	}
+	Untar(fmt.Sprintf("%s/Installed/%s", location, pkg), resp.Body)
+}
+func GetDownloadUrl() {}
+func Untar(dst string, r io.Reader) error {
+
+	gzr, err := gzip.NewReader(r)
+	if err != nil {
+		return err
+	}
+	defer gzr.Close()
+
+	tr := tar.NewReader(gzr)
+
+	for {
+		header, err := tr.Next()
+
+		switch {
+
+		// if no more files are found return
+		case err == io.EOF:
+			return nil
+
+		// return any other error
+		case err != nil:
+			return err
+
+		// if the header is nil, just skip it (not sure how this happens)
+		case header == nil:
+			continue
+		}
+
+		// the target location where the dir/file should be created
+		target := filepath.Join(dst, header.Name)
+
+		// the following switch could also be done using fi.Mode(), not sure if there
+		// a benefit of using one vs. the other.
+		// fi := header.FileInfo()
+
+		// check the file type
+		switch header.Typeflag {
+
+		// if its a dir and it doesn't exist create it
+		case tar.TypeDir:
+			if _, err := os.Stat(target); err != nil {
+				if err := os.MkdirAll(target, 0755); err != nil {
+					return err
+				}
+			}
+
+		// if it's a file create it
+		case tar.TypeReg:
+			f, err := os.OpenFile(target, os.O_CREATE|os.O_RDWR, os.FileMode(header.Mode))
+			if err != nil {
+				return err
+			}
+
+			// copy over contents
+			if _, err := io.Copy(f, tr); err != nil {
+				return err
+			}
+
+			// manually close here after each file operation; defering would cause each file close
+			// to wait until all operations have completed.
+			f.Close()
+		}
+	}
 }

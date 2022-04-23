@@ -1,6 +1,5 @@
-from cgi import test
 from index import Barrells
-class Test (Barrells):
+class test (Barrells):
     def __init__(self):
         Barrells.__init__(self)
         self.git=True
@@ -9,3 +8,5 @@ class Test (Barrells):
         self.homepage="https://github.com/NotTimIsReal"
         self.dependencies=["curl", "git"]
         self.supported_OS=["1.0.0"]
+    def install():
+        pass

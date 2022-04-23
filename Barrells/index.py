@@ -12,6 +12,7 @@ class Barrells:
         self.sha256:str
         self.supported_OS:list[str]
         self.dependencies:list[str]
+        self.binary:str
     def install(self)->bool:
         pass
     def uninstall(self)->bool:
