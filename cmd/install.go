@@ -78,19 +78,21 @@ var installCmd = &cobra.Command{
 			}
 
 		}
-		s := spinner.New(spinner.CharSets[2], 100*time.Millisecond) // Build our new spinner
-		s.Suffix = color.GreenString(" Downloading Source...")
-		s.Start()
+
 		if !foundPkg {
+			s := spinner.New(spinner.CharSets[2], 100*time.Millisecond) // Build our new spinner
+			s.Suffix = color.GreenString(" Downloading Source...")
+			s.Start()
 			DownloadFromGithub(args[0], fmt.Sprintf("%s/Installed/%s", location, strings.Split(args[0], "https://")[1]), verbose)
+			s.Stop()
 		}
-		s.Stop()
+
 		if UsingGit(args[0], verbose) {
 			s := spinner.New(spinner.CharSets[2], 100*time.Millisecond) // Build our new spinner
 			s.Suffix = color.GreenString(" Downloading Source...")
 			s.Start()
 			url := GetGitURL(args[0], verbose)
-			err := DownloadFromGithub(url, fmt.Sprintf("%s/Installed/%s", location, strings.Split(url, "https://")[1]), verbose)
+			err := DownloadFromGithub(url, fmt.Sprintf("%s/Installed/%s", location, args[0]), verbose)
 			if err != nil {
 				s.Stop()
 				fmt.Println(color.RedString(err.Error()))
@@ -103,6 +105,15 @@ var installCmd = &cobra.Command{
 
 			installPackages(args[0], verbose)
 
+		} else {
+			s := spinner.New(spinner.CharSets[2], 100*time.Millisecond) // Build our new spinner
+			s.Suffix = color.GreenString(" Downloading Source...")
+			s.Start()
+			GetDownloadUrl(args[0], verbose)
+			s.Stop()
+			s = spinner.New(spinner.CharSets[36], 100*time.Millisecond) // Build our new spinner
+			s.Suffix = color.GreenString(" Installing Package...")
+			installPackages(args[0], verbose)
 		}
 
 	},
@@ -259,6 +270,17 @@ func installPackages(pkg string, verbose string) {
 			continue
 		}
 		fmt.Printf(color.YellowString("Now Downloading %s\n"), dep)
+		if UsingGit(dep, verbose) {
+			url := GetGitURL(dep, verbose)
+			err := DownloadFromGithub(url, fmt.Sprintf("%s/Installed/%s", location, dep), verbose)
+			if err != nil {
+				panic(err)
+			}
+			installPackages(dep, verbose)
+		} else {
+			GetDownloadUrl(dep, verbose)
+			installPackages(dep, verbose)
+		}
 
 	}
 
@@ -307,7 +329,7 @@ func GetGitURL(pkg string, verbose string) string {
 	return buf.String()
 
 }
-func DownloadFromTar(pkg string, url string, verbose string) {
+func DownloadFromTar(pkg string, url string, verbose string) string {
 	resp, err := http.Get(url)
 	if err != nil {
 		fmt.Println(color.RedString("Unable to download %s", pkg))
@@ -326,14 +348,62 @@ func DownloadFromTar(pkg string, url string, verbose string) {
 	if verbose == "true" {
 		fmt.Println("Extracting Tar")
 	}
-	Untar(fmt.Sprintf("%s/Installed/%s", location, pkg), resp.Body)
+	path, err := Untar(fmt.Sprintf("%s/Installed/", location), resp.Body)
+	if err != nil {
+		fmt.Println(color.RedString("Unable to extract %s", pkg))
+		panic(err)
+	}
+	return path
 }
-func GetDownloadUrl() {}
-func Untar(dst string, r io.Reader) error {
+func GetDownloadUrl(pkg string, verbose string) string {
+	if verbose == "true" {
+		fmt.Println("Looking For GitURl")
+	}
+	//Variables
+	location, err := os.Executable()
+	if err != nil {
+		panic(err)
+	}
+	location = location[:len(location)-len("/ferment")]
+	content, err := os.ReadFile(fmt.Sprintf("%s/Barrells/%s.py", location, strings.ToLower(pkg)))
+	if err != nil {
+		if strings.Contains(err.Error(), "no such file or directory") {
+			fmt.Println(color.RedString("Reinstall ferment, Barrells is missing"))
+			os.Exit(1)
+		}
+		panic(err)
+	}
+	cmd := exec.Command("python3")
+	closer, err := cmd.StdinPipe()
+	if err != nil {
+		panic(err)
+	}
+	defer closer.Close()
+	if verbose == "true" {
+		fmt.Println("Starting STDIN pipe")
+	}
+	r, w, _ := os.Pipe()
+	cmd.Stdout = w
+	cmd.Stderr = os.Stderr
+	cmd.Dir = fmt.Sprintf("%s/Barrells", location)
+	cmd.Start()
+	closer.Write(content)
+	closer.Write([]byte("\n"))
+	io.WriteString(closer, fmt.Sprintf("pkg=%s()\n", strings.ToLower(pkg)))
+	io.WriteString(closer, "print(pkg.url)\n")
+	closer.Close()
+	w.Close()
+	cmd.Wait()
+	var buf bytes.Buffer
+	io.Copy(&buf, r)
+	path := DownloadFromTar(pkg, strings.Replace(buf.String(), "\n", "", -1), verbose)
+	return path
+}
+func Untar(dst string, r io.Reader) (string, error) {
 
 	gzr, err := gzip.NewReader(r)
 	if err != nil {
-		return err
+		return "", err
 	}
 	defer gzr.Close()
 
@@ -346,11 +416,11 @@ func Untar(dst string, r io.Reader) error {
 
 		// if no more files are found return
 		case err == io.EOF:
-			return nil
+			return "", nil
 
 		// return any other error
 		case err != nil:
-			return err
+			return "", err
 
 		// if the header is nil, just skip it (not sure how this happens)
 		case header == nil:
@@ -371,7 +441,7 @@ func Untar(dst string, r io.Reader) error {
 		case tar.TypeDir:
 			if _, err := os.Stat(target); err != nil {
 				if err := os.MkdirAll(target, 0755); err != nil {
-					return err
+					return "", err
 				}
 			}
 
@@ -379,12 +449,11 @@ func Untar(dst string, r io.Reader) error {
 		case tar.TypeReg:
 			f, err := os.OpenFile(target, os.O_CREATE|os.O_RDWR, os.FileMode(header.Mode))
 			if err != nil {
-				return err
+				return "", err
 			}
-
 			// copy over contents
 			if _, err := io.Copy(f, tr); err != nil {
-				return err
+				return "", err
 			}
 
 			// manually close here after each file operation; defering would cause each file close
@@ -392,4 +461,10 @@ func Untar(dst string, r io.Reader) error {
 			f.Close()
 		}
 	}
+	name, _ := tr.Next()
+	path := strings.Split(name.Name, "/")[0]
+	return path, nil
+}
+func RunInstallationScript(pkg string, verbose string) {
+
 }

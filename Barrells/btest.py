@@ -1,5 +1,5 @@
 from index import Barrells
-class test (Barrells):
+class btest (Barrells):
     def __init__(self):
         Barrells.__init__(self)
         self.git=True
