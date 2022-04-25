@@ -80,11 +80,20 @@ var installCmd = &cobra.Command{
 		}
 
 		if !foundPkg {
+			if strings.Contains(args[0], "http://") {
+				fmt.Println("http is not supported on Ferment, use a https url or just use a package name")
+				os.Exit(1)
+			}
 			s := spinner.New(spinner.CharSets[2], 100*time.Millisecond) // Build our new spinner
 			s.Suffix = color.GreenString(" Downloading Source...")
+			args[0] = strings.ToLower(args[0])
+			args[0] = url.QueryEscape(args[0])
 			s.Start()
 			DownloadFromGithub(args[0], fmt.Sprintf("%s/Installed/%s", location, strings.Split(args[0], "https://")[1]), verbose)
 			s.Stop()
+			fmt.Println(color.GreenString("Downloaded Source"))
+			fmt.Println(color.YellowString("Cannot Install Source As It Is Not In Default List"))
+			os.Exit(0)
 		}
 
 		if UsingGit(args[0], verbose) {
