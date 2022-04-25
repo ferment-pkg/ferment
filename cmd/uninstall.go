@@ -1,5 +1,5 @@
 /*
-Copyright © 2022 NAME HERE <EMAIL ADDRESS>
+Copyright © 2022 NotTimIsReal
 
 */
 package cmd
@@ -8,7 +8,6 @@ import (
 	"bytes"
 	"fmt"
 	"io"
-	"net/url"
 	"os"
 	"os/exec"
 	"strings"
@@ -39,7 +38,6 @@ var uninstallCmd = &cobra.Command{
 				fmt.Println("Ferment Does Not Support http packages")
 				os.Exit(1)
 			}
-			args[0] = url.QueryEscape(args[0])
 			args[0] = strings.Split(args[0], "https://")[1]
 			checkIfPackageExists(strings.ToLower(args[0]))
 			os.RemoveAll(fmt.Sprintf("%s/Installed/%s", location, strings.ToLower(args[0])))

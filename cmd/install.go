@@ -1,5 +1,5 @@
 /*
-Copyright © 2022 NAME HERE <EMAIL ADDRESS>
+Copyright © 2022 NotTimIsReal
 
 */
 package cmd
@@ -87,7 +87,6 @@ var installCmd = &cobra.Command{
 			s := spinner.New(spinner.CharSets[2], 100*time.Millisecond) // Build our new spinner
 			s.Suffix = color.GreenString(" Downloading Source...")
 			args[0] = strings.ToLower(args[0])
-			args[0] = url.QueryEscape(args[0])
 			s.Start()
 			DownloadFromGithub(args[0], fmt.Sprintf("%s/Installed/%s", location, strings.Split(args[0], "https://")[1]), verbose)
 			s.Stop()

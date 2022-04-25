@@ -1,26 +1,67 @@
 /*
-Copyright © 2022 NAME HERE <EMAIL ADDRESS>
+Copyright © 2022 NotTimIsReal
 
 */
 package cmd
 
 import (
+	"bytes"
+	"fmt"
+	"io"
 	"os"
 
+	"github.com/go-git/go-git/v5"
+	"github.com/go-git/go-git/v5/storage/memory"
 	"github.com/spf13/cobra"
+	"gopkg.in/src-d/go-billy.v4/memfs"
 )
 
 // rootCmd represents the base command when called without any subcommands
+const repo string = "https://github.com/NotTimIsReal/ferment"
+
 var rootCmd = &cobra.Command{
 	Use:   "ferment",
 	Short: "A faster and more efficient way to install packages",
 	Long: `
 Ferment is a faster and more efficient way to install packages.
-Uses a similar concept to brew but much faster as it uses a compiled language rather than Ruby.
+Uses a similar concept to brew but much faster as it uses a 
+compiled language rather than Ruby.
 Run ferment install your first package.`,
 	// Uncomment the following line if your bare application
 	// has an action associated with it:
-	//Run: func(cmd *cobra.Command, args []string) {},
+	Run: func(cmd *cobra.Command, args []string) {
+		v, err := cmd.Flags().GetBool("version")
+		if err != nil {
+			panic(err)
+		}
+		if v {
+			fs := memfs.New()
+			_, err := git.Clone(memory.NewStorage(), nil, &git.CloneOptions{
+				URL:   repo,
+				Depth: 1,
+			})
+			f, err := fs.Open("VERSION.meta")
+			if err != nil {
+				panic(err)
+			}
+			var buf bytes.Buffer
+			io.Copy(f, &buf)
+			location, err := os.Executable()
+			if err != nil {
+				panic(err)
+			}
+			location = location[:len(location)-len("/ferment")]
+			content, err := os.ReadFile(fmt.Sprintf("%s/VERSION.meta", location))
+			if err != nil {
+				panic(err)
+			}
+			version := string(content)
+			fmt.Printf("Ferment %s\n", version)
+			fmt.Printf("Latest Version %s\n", buf.String())
+			os.Exit(0)
+		}
+		cmd.Help()
+	},
 }
 
 // Execute adds all child commands to the root command and sets flags appropriately.
@@ -42,4 +83,5 @@ func init() {
 	// Cobra also supports local flags, which will only run
 	// when this action is called directly.
 	rootCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
+	rootCmd.Flags().BoolP("version", "v", false, "Prints the version of the Ferment")
 }
