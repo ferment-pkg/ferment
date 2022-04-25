@@ -23,7 +23,7 @@ class bitgit(Barrells):
         subprocess.run(["echo", "Hello World", ">", "/tmp/testDir/test.txt"])
         subprocess.run(["/usr/local/bit", "add", "test.txt"], cwd="/tmp/testDir/")
         output=subprocess.check_output(["/usr/local/bit", "status"], cwd="/tmp/testDir/")
-        if "new file:   test.txt" in output:
+        if b"new file:   test.txt" in output:
             return True
         else:
             return False

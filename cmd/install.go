@@ -205,7 +205,6 @@ func installPackages(pkg string, verbose string) {
 		fmt.Println("Looking For Dependencies")
 	}
 	//Variables
-	old := os.Stdout
 	location, err := os.Executable()
 	if err != nil {
 		panic(err)
@@ -229,9 +228,8 @@ func installPackages(pkg string, verbose string) {
 		fmt.Println("Starting STDIN pipe")
 	}
 	r, w, _ := os.Pipe()
-	os.Stdout = w
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+	cmd.Stdout = w
+	cmd.Stderr = w
 	cmd.Dir = fmt.Sprintf("%s/Barrells", location)
 	cmd.Start()
 	closer.Write(content)
@@ -241,7 +239,6 @@ func installPackages(pkg string, verbose string) {
 	closer.Close()
 	w.Close()
 	cmd.Wait()
-	os.Stdout = old
 	var buf bytes.Buffer
 	io.Copy(&buf, r)
 	dependencies := strings.Split(buf.String(), "\n")[0]
@@ -251,43 +248,67 @@ func installPackages(pkg string, verbose string) {
 	dependencies = strings.Replace(dependencies, "'", "", -1)
 	dependenciesArr := strings.Split(dependencies, ",")
 	//run a function for each dependecy in dependenciesArr
-	for _, dep := range dependenciesArr {
-		fmt.Printf(color.YellowString("Package %s depends on %s\n"), pkg, dep)
-		cmd := exec.Command("which", strings.ReplaceAll(dep, "'", ""))
-		r, w, err := os.Pipe()
-		if err != nil {
-			panic(err)
-		}
-		cmd.Stdout = w
-		cmd.Start()
-		w.Close()
-		cmd.Wait()
-		var buf bytes.Buffer
-		io.Copy(&buf, r)
-		if buf.String() != "" {
-			fmt.Printf(color.YellowString("%s is already installed\n"), dep)
-			fmt.Println(color.YellowString("Skipping"))
-			continue
-		}
-		fmt.Printf(color.YellowString("Now Downloading %s\n"), dep)
-		if UsingGit(dep, verbose) {
-			url := GetGitURL(dep, verbose)
-			err := DownloadFromGithub(url, fmt.Sprintf("%s/Installed/%s", location, dep), verbose)
+	if !strings.Contains(dependencies, "Traceback(mostrecentcalllast)") {
+		for _, dep := range dependenciesArr {
+			fmt.Printf(color.YellowString("Package %s depends on %s\n"), pkg, dep)
+			cmd := exec.Command("which", strings.ReplaceAll(dep, "'", ""))
+			r, w, err := os.Pipe()
 			if err != nil {
 				panic(err)
 			}
-			installPackages(dep, verbose)
-		} else {
-			GetDownloadUrl(dep, verbose)
-			installPackages(dep, verbose)
-		}
+			cmd.Stdout = w
+			cmd.Start()
+			w.Close()
+			cmd.Wait()
+			var buf bytes.Buffer
+			io.Copy(&buf, r)
+			if buf.String() != "" {
+				fmt.Printf(color.YellowString("%s is already installed\n"), dep)
+				fmt.Println(color.YellowString("Skipping"))
+				continue
+			}
+			fmt.Printf(color.YellowString("Now Downloading %s\n"), dep)
+			if UsingGit(dep, verbose) {
+				url := GetGitURL(dep, verbose)
+				err := DownloadFromGithub(url, fmt.Sprintf("%s/Installed/%s", location, dep), verbose)
+				if err != nil {
+					panic(err)
+				}
+				installPackages(dep, verbose)
+				// TestInstallationScript(dep, verbose)
+			} else {
+				GetDownloadUrl(dep, verbose)
+				installPackages(dep, verbose)
+				// TestInstallationScript(dep, verbose)
+			}
 
+		}
 	}
 	s := spinner.New(spinner.CharSets[36], 100*time.Millisecond)
 	s.Suffix = " Installing " + pkg
+	s.FinalMSG = color.GreenString("Installed " + pkg + "\n")
 	s.Start()
 	RunInstallationScript(pkg, verbose, pkg)
 	s.Stop()
+	s = spinner.New(spinner.CharSets[36], 100*time.Millisecond)
+	s.Suffix = " Installing Binaries For " + pkg
+	s.FinalMSG = color.GreenString("Installed Binary For " + pkg + "\n")
+	s.Start()
+	msg := InstallBinary(pkg, verbose)
+	if msg == "No Binary" {
+		s.FinalMSG = color.GreenString("No Binaries Needed To Be Installed")
+		s.Stop()
+
+	} else {
+		s.Stop()
+	}
+
+	// s = spinner.New(spinner.CharSets[36], 100*time.Millisecond)
+	// s.Suffix = " Testing " + pkg
+	// s.FinalMSG = color.GreenString("Installed " + pkg + "\n")
+	// s.Start()
+	// TestInstallationScript(pkg, verbose)
+	// s.Stop()
 
 }
 func GetGitURL(pkg string, verbose string) string {
@@ -503,4 +524,94 @@ func RunInstallationScript(pkg string, verbose string, cwd string) {
 	w.Close()
 	cmd.Wait()
 
+}
+func TestInstallationScript(pkg string, verbose string) {
+	if verbose == "true" {
+		fmt.Println("Running Installation Script")
+	}
+	location, err := os.Executable()
+	location = location[:len(location)-len("/ferment")]
+	if err != nil {
+		panic(err)
+	}
+	content, err := os.ReadFile(fmt.Sprintf("%s/Barrells/%s.py", location, strings.ToLower(pkg)))
+	if err != nil {
+		panic(err)
+	}
+	cmd := exec.Command("python3")
+	closer, err := cmd.StdinPipe()
+	if err != nil {
+		panic(err)
+	}
+	defer closer.Close()
+	if verbose == "true" {
+		fmt.Println("Starting STDIN pipe")
+	}
+	r, w, _ := os.Pipe()
+	cmd.Stdout = w
+	cmd.Stderr = w
+	cmd.Dir = fmt.Sprintf("%s/Barrells", location)
+	cmd.Start()
+	closer.Write(content)
+	closer.Write([]byte("\n"))
+	io.WriteString(closer, fmt.Sprintf("pkg=%s()\n", strings.ToLower(pkg)))
+	io.WriteString(closer, "pkg.test()\n")
+	closer.Close()
+	w.Close()
+	cmd.Wait()
+	var buf bytes.Buffer
+	io.Copy(&buf, r)
+	fmt.Println(buf.String())
+	if strings.Contains(buf.String(), "True") {
+		fmt.Println(buf.String())
+	}
+
+}
+func InstallBinary(pkg string, verbose string) string {
+	if verbose == "true" {
+		fmt.Println("Installing Binary")
+	}
+	location, err := os.Executable()
+	location = location[:len(location)-len("/ferment")]
+	if err != nil {
+		panic(err)
+	}
+	content, err := os.ReadFile(fmt.Sprintf("%s/Barrells/%s.py", location, strings.ToLower(pkg)))
+	if err != nil {
+		panic(err)
+	}
+	cmd := exec.Command("python3")
+	closer, err := cmd.StdinPipe()
+	if err != nil {
+		panic(err)
+	}
+	defer closer.Close()
+	if verbose == "true" {
+		fmt.Println("Starting STDIN pipe")
+	}
+	r, w, _ := os.Pipe()
+	cmd.Stdout = w
+	cmd.Stderr = w
+	cmd.Dir = fmt.Sprintf("%s/Barrells", location)
+	cmd.Start()
+	closer.Write(content)
+	closer.Write([]byte("\n"))
+	io.WriteString(closer, fmt.Sprintf("pkg=%s()\n", strings.ToLower(pkg)))
+	io.WriteString(closer, "print(pkg.binary)\n")
+	closer.Close()
+	w.Close()
+	cmd.Wait()
+	var buf bytes.Buffer
+	io.Copy(&buf, r)
+	if strings.Contains(buf.String(), "no attribute") {
+		return "No Binary"
+	} else {
+		binary := strings.Replace(buf.String(), "'", "", -1)
+		binary = strings.Replace(binary, "\n", "", -1)
+		err := os.Symlink(fmt.Sprintf("%s/Installed/%s/%s", location, pkg, binary), fmt.Sprintf("/usr/local/bin/%s", binary))
+		if err != nil {
+			fmt.Println(err)
+		}
+		return "Binary Installed"
+	}
 }
