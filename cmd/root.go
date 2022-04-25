@@ -10,10 +10,10 @@ import (
 	"io"
 	"os"
 
+	"github.com/go-git/go-billy/v5/memfs"
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/storage/memory"
 	"github.com/spf13/cobra"
-	"gopkg.in/src-d/go-billy.v4/memfs"
 )
 
 // rootCmd represents the base command when called without any subcommands
@@ -36,16 +36,18 @@ Run ferment install your first package.`,
 		}
 		if v {
 			fs := memfs.New()
-			_, err := git.Clone(memory.NewStorage(), nil, &git.CloneOptions{
-				URL:   repo,
-				Depth: 1,
+			_, err = git.Clone(memory.NewStorage(), fs, &git.CloneOptions{
+				URL: repo,
 			})
+			if err != nil {
+				panic(err)
+			}
 			f, err := fs.Open("VERSION.meta")
 			if err != nil {
 				panic(err)
 			}
 			var buf bytes.Buffer
-			io.Copy(f, &buf)
+			io.Copy(&buf, f)
 			location, err := os.Executable()
 			if err != nil {
 				panic(err)
