@@ -9,3 +9,4 @@ class btest (Barrells):
         self.supported_OS=["1.0.0"]
     def install():
        print("None")
+       return True

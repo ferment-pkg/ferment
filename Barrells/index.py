@@ -14,15 +14,20 @@ class Barrells:
         self.dependencies:list[str]
         self.binary:str
     def install(self)->bool:
-        pass
+        print("True")
+        return True
     def uninstall(self)->bool:
-        pass
+        print("True")
+        return True
     def build(self)->bool:
-        pass
+        print("True")
+        return True
     def update(self)->bool:
-        pass
+        print("True")
+        return True
     def test(self)->bool:
-        pass
+        print("True")
+        return True
     
     
     

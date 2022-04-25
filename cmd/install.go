@@ -297,18 +297,20 @@ func installPackages(pkg string, verbose string) {
 	msg := InstallBinary(pkg, verbose)
 	if msg == "No Binary" {
 		s.FinalMSG = color.GreenString("No Binaries Needed To Be Installed")
-		s.Stop()
 
-	} else {
-		s.Stop()
 	}
+	s.Stop()
 
-	// s = spinner.New(spinner.CharSets[36], 100*time.Millisecond)
-	// s.Suffix = " Testing " + pkg
-	// s.FinalMSG = color.GreenString("Installed " + pkg + "\n")
-	// s.Start()
-	// TestInstallationScript(pkg, verbose)
-	// s.Stop()
+	s = spinner.New(spinner.CharSets[36], 100*time.Millisecond)
+	s.Suffix = " Testing " + pkg
+	s.Start()
+	result := TestInstallationScript(pkg, verbose)
+	if result {
+		s.FinalMSG = color.GreenString("Successfully Tested Installed " + pkg + "\n")
+	} else {
+		s.FinalMSG = color.RedString("Installed " + pkg + " Failed Test\n")
+	}
+	s.Stop()
 
 }
 func GetGitURL(pkg string, verbose string) string {
@@ -525,7 +527,7 @@ func RunInstallationScript(pkg string, verbose string, cwd string) {
 	cmd.Wait()
 
 }
-func TestInstallationScript(pkg string, verbose string) {
+func TestInstallationScript(pkg string, verbose string) bool {
 	if verbose == "true" {
 		fmt.Println("Running Installation Script")
 	}
@@ -561,10 +563,10 @@ func TestInstallationScript(pkg string, verbose string) {
 	cmd.Wait()
 	var buf bytes.Buffer
 	io.Copy(&buf, r)
-	fmt.Println(buf.String())
-	if strings.Contains(buf.String(), "True") {
-		fmt.Println(buf.String())
+	if strings.Contains(buf.String(), "no attribute") {
+		return true
 	}
+	return strings.Contains(buf.String(), "True")
 
 }
 func InstallBinary(pkg string, verbose string) string {

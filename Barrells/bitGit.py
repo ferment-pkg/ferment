@@ -20,11 +20,13 @@ class bitgit(Barrells):
         return True
     def test(self):
         subprocess.run(["git", "init", "/tmp/testDir"])
-        subprocess.run(["echo", "Hello World", ">", "/tmp/testDir/test.txt"])
-        subprocess.run(["/usr/local/bit", "add", "test.txt"], cwd="/tmp/testDir/")
-        output=subprocess.check_output(["/usr/local/bit", "status"], cwd="/tmp/testDir/")
+        subprocess.run(["touch", "/tmp/testDir/test.txt"])
+        subprocess.run(["/usr/local/bin/bit", "add", "test.txt"], cwd="/tmp/testDir/")
+        output=subprocess.check_output(["/usr/local/bin/bit", "status"], cwd="/tmp/testDir/")
         if b"new file:   test.txt" in output:
+            print("True")
             return True
         else:
+            print("False")
             return False
         
