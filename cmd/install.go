@@ -283,11 +283,11 @@ func installPackages(pkg string, verbose string) {
 				if err != nil {
 					panic(err)
 				}
-				installPackages(dep, verbose)
+				go installPackages(dep, verbose)
 				// TestInstallationScript(dep, verbose)
 			} else {
 				GetDownloadUrl(dep, verbose)
-				installPackages(dep, verbose)
+				go installPackages(dep, verbose)
 				// TestInstallationScript(dep, verbose)
 			}
 

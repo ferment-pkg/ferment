@@ -11,7 +11,7 @@ class bitgit(Barrells):
         self.sha256="563ae6b0fa279cb8ea8f66b4b455c7cb74a9e65a0edbe694505b2c8fc719b2ff"
         self.license="Apache-2.0"
         self.version="1.1.2"
-        self.dependencies=["go"]
+        self.dependencies=["go", "curl", "git"]
         self.binary="bit"
     def install(self):
         subprocess.run(["go", "build"], cwd=self.cwd)

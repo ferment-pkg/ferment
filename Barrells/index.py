@@ -1,5 +1,5 @@
 from typing import Optional
-
+import os
 class Barrells:
     def __init__(self):        
         self.url:str
@@ -33,7 +33,8 @@ class Barrells:
     def download(self)->bool:
         print("True")
         return True
-    
-    
-    
-    
+    # Helper Functions DON'T EDIT
+    def EditPath(self, path:str):
+        home=os.getenv("HOME")
+        with open(f"{home}/.zshrc", "a") as f:
+            f.write(f"PATH=$PATH:{path}")
