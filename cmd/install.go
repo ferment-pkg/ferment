@@ -276,6 +276,11 @@ func installPackages(pkg string, verbose string) {
 				fmt.Println(color.YellowString("Skipping"))
 				continue
 			}
+			_, err = os.ReadFile(fmt.Sprintf("%s/Barrells/%s.py", location, strings.ToLower(dep)))
+			if err != nil {
+				fmt.Println("Not Downloadable By Ferment, Skipping")
+				continue
+			}
 			fmt.Printf(color.YellowString("Now Downloading %s\n"), dep)
 			if UsingGit(dep, verbose) {
 				url := GetGitURL(dep, verbose)

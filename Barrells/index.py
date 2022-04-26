@@ -13,6 +13,7 @@ class Barrells:
         self.supported_OS:list[str]
         self.dependencies:list[str]
         self.binary:str
+        self.lib:bool
         #Provided by the cmd
         self.cwd:str
     def install(self)->bool:

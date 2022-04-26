@@ -4,7 +4,8 @@
 # Installation:
 
 ## Requirements:
-- python3 (Should Be Pre-Installed On Most Macs)
+- [python3](https://www.python.org/) (Should Be Pre-Installed On Most Macs)
+- [xcode-cli](https://www.freecodecamp.org/news/install-xcode-command-line-tools/)
 
 ## Install:
 ```sh
