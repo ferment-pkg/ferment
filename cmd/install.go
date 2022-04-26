@@ -527,7 +527,7 @@ func RunInstallationScript(pkg string, verbose string, cwd string) {
 	if verbose == "true" {
 		fmt.Println("Starting STDIN pipe")
 	}
-	_, w, _ := os.Pipe()
+	r, w, _ := os.Pipe()
 	cmd.Stdout = w
 	cmd.Dir = fmt.Sprintf("%s/Barrells", location)
 	cmd.Start()
@@ -539,6 +539,8 @@ func RunInstallationScript(pkg string, verbose string, cwd string) {
 	closer.Close()
 	w.Close()
 	cmd.Wait()
+	var buf bytes.Buffer
+	io.Copy(&buf, r)
 
 }
 func TestInstallationScript(pkg string, verbose string) bool {
