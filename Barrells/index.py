@@ -13,6 +13,8 @@ class Barrells:
         self.supported_OS:list[str]
         self.dependencies:list[str]
         self.binary:str
+        #Provided by the cmd
+        self.cwd:str
     def install(self)->bool:
         print("True")
         return True
@@ -26,6 +28,9 @@ class Barrells:
         print("True")
         return True
     def test(self)->bool:
+        print("True")
+        return True
+    def download(self)->bool:
         print("True")
         return True
     

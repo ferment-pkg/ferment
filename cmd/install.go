@@ -118,6 +118,7 @@ var installCmd = &cobra.Command{
 			s.Suffix = color.GreenString(" Downloading Source...")
 			s.Start()
 			GetDownloadUrl(args[0], verbose)
+			DownloadInstructions(args[0])
 			s.Stop()
 			s = spinner.New(spinner.CharSets[36], 100*time.Millisecond) // Build our new spinner
 			s.Suffix = color.GreenString(" Installing Package...")
@@ -624,4 +625,35 @@ func InstallBinary(pkg string, verbose string) string {
 		}
 		return "Binary Installed"
 	}
+}
+func DownloadInstructions(pkg string) {
+	location, err := os.Executable()
+	location = location[:len(location)-len("/ferment")]
+	if err != nil {
+		panic(err)
+	}
+	content, err := os.ReadFile(fmt.Sprintf("%s/Barrells/%s.py", location, strings.ToLower(pkg)))
+	if err != nil {
+		panic(err)
+	}
+	cmd := exec.Command("python3")
+	closer, err := cmd.StdinPipe()
+	if err != nil {
+		panic(err)
+	}
+	defer closer.Close()
+	_, w, _ := os.Pipe()
+	cmd.Stdout = w
+	cmd.Stderr = w
+	cmd.Dir = fmt.Sprintf("%s/Barrells", location)
+	cmd.Start()
+	closer.Write(content)
+	closer.Write([]byte("\n"))
+	io.WriteString(closer, fmt.Sprintf("pkg=%s()\n", strings.ToLower(pkg)))
+	io.WriteString(closer, fmt.Sprintf("pkg.cwd=%s\n", fmt.Sprintf("\"%s/Installed/%s\"", location, pkg)))
+	io.WriteString(closer, "pkg.download()\n")
+	closer.Close()
+	w.Close()
+	cmd.Wait()
+
 }
