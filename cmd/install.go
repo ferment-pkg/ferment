@@ -528,6 +528,7 @@ func RunInstallationScript(pkg string, verbose string, cwd string) {
 		fmt.Println("Starting STDIN pipe")
 	}
 	r, w, _ := os.Pipe()
+	defer w.Close()
 	cmd.Stdout = w
 	cmd.Dir = fmt.Sprintf("%s/Barrells", location)
 	cmd.Start()
@@ -536,8 +537,6 @@ func RunInstallationScript(pkg string, verbose string, cwd string) {
 	io.WriteString(closer, fmt.Sprintf("pkg=%s()\n", strings.ToLower(pkg)))
 	io.WriteString(closer, fmt.Sprintf(`pkg.cwd="%s/Installed/%s"`+"\n", location, cwd))
 	io.WriteString(closer, "pkg.install()\n")
-	//wait 1 second
-	time.Sleep(time.Second)
 	closer.Close()
 	w.Close()
 	cmd.Wait()
@@ -662,7 +661,7 @@ func DownloadInstructions(pkg string) {
 	closer.Write(content)
 	closer.Write([]byte("\n"))
 	io.WriteString(closer, fmt.Sprintf("pkg=%s()\n", strings.ToLower(pkg)))
-	io.WriteString(closer, fmt.Sprintf("pkg.cwd=%s\n", fmt.Sprintf("\"%s/Installed/%s\"", location, pkg)))
+	io.WriteString(closer, fmt.Sprintf("pkg.cwd=%s\n", fmt.Sprintf(`"%s/Installed/%s"`, location, pkg)))
 	io.WriteString(closer, "pkg.download()\n")
 	closer.Close()
 	w.Close()

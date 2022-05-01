@@ -49,7 +49,12 @@ Create a new file in the Barrells folder and name it the same as the package you
 
 # Trouble-Shooting
 ## Automake Doesn't Install
-Fix: Uninstall the package and then close your terminal and clear your cache at `/tmp/ and ~/Library/Caches/`, open a new terminal window and run `ferment install <package>`
+**Fix:** Uninstall the package and then close your terminal and clear your cache at `/tmp/ and ~/Library/Caches/`, open a new terminal window and run `ferment install <package>`
+## Pkg-Config Doesn't Build On M1
+**Fix:** No current fix is available except running the build command manually. On Intel, a pre-compiled will be used.
+
+**PS:** It would be incredibly helpful if someone after manually building pkg-config would submit a pull request on https://github.com/ferment-pkg/pkg-config-prebuilt with the prefix's output (bin and share).
+
 
 
 
