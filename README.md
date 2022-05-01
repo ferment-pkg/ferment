@@ -46,3 +46,10 @@ Ferment is written in GO which is compiled to native code which is faster than t
 simply adding `self.dependencies=[<dependency>]` to your Barrell's '\__init\__ function.
 ## How Do i add my own package to Ferment?
 Create a new file in the Barrells folder and name it the same as the package you want to add. Create A Class with the same name as the file, you can look at index.py in barrells to see what variables are read. 
+
+# Trouble-Shooting
+## Automake Doesn't Install
+Fix: Uninstall the package and then close your terminal and clear your cache at `/tmp/ and ~/Library/Caches/`, open a new terminal window and run `ferment install <package>`
+
+
+
