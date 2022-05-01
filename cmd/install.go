@@ -536,11 +536,15 @@ func RunInstallationScript(pkg string, verbose string, cwd string) {
 	io.WriteString(closer, fmt.Sprintf("pkg=%s()\n", strings.ToLower(pkg)))
 	io.WriteString(closer, fmt.Sprintf(`pkg.cwd="%s/Installed/%s"`+"\n", location, cwd))
 	io.WriteString(closer, "pkg.install()\n")
+	//wait 1 second
+	time.Sleep(time.Second)
 	closer.Close()
 	w.Close()
 	cmd.Wait()
 	var buf bytes.Buffer
 	io.Copy(&buf, r)
+	buf.Reset()
+	//print nothing
 	fmt.Println(buf.String())
 
 }
