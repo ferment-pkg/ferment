@@ -541,6 +541,7 @@ func RunInstallationScript(pkg string, verbose string, cwd string) {
 	cmd.Wait()
 	var buf bytes.Buffer
 	io.Copy(&buf, r)
+	fmt.Println(buf.String())
 
 }
 func TestInstallationScript(pkg string, verbose string) bool {
