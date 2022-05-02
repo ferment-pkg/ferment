@@ -104,7 +104,6 @@ func GetUninstallInstructions(pkg string) {
 	if strings.Contains(buf.String(), "True") {
 		os.RemoveAll(fmt.Sprintf("%s/Installed/%s", location, pkg))
 		fmt.Println(color.GreenString("Package Uninstalled Successfully"))
-		os.Exit(0)
 	} else {
 		fmt.Println(color.RedString("Package Uninstall Failed"))
 		os.Exit(1)
@@ -118,8 +117,5 @@ func checkIfPackageExists(pkg string) bool {
 	}
 	location = location[:len(location)-len("/ferment")]
 	_, err = os.ReadDir(fmt.Sprintf("%s/Installed/%s", location, pkg))
-	if err != nil {
-		return true
-	}
-	return false
+	return err == nil
 }

@@ -8,11 +8,9 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 
-	"github.com/go-git/go-billy/v5/memfs"
-	"github.com/go-git/go-git/v5"
-	"github.com/go-git/go-git/v5/storage/memory"
 	"github.com/spf13/cobra"
 )
 
@@ -35,19 +33,9 @@ Run ferment install your first package.`,
 			panic(err)
 		}
 		if v {
-			fs := memfs.New()
-			_, err = git.Clone(memory.NewStorage(), fs, &git.CloneOptions{
-				URL: repo,
-			})
-			if err != nil {
-				panic(err)
-			}
-			f, err := fs.Open("VERSION.meta")
-			if err != nil {
-				panic(err)
-			}
+			resp, _ := http.Get("https://raw.githubusercontent.com/ferment-pkg/ferment/main/VERSION.meta")
 			var buf bytes.Buffer
-			io.Copy(&buf, f)
+			io.Copy(&buf, resp.Body)
 			location, err := os.Executable()
 			if err != nil {
 				panic(err)
