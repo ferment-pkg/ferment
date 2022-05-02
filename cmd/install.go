@@ -35,94 +35,101 @@ var installCmd = &cobra.Command{
 			fmt.Println("Please provide a package to install, it can either be a custom package from github, gitlab, etc or a official package")
 			os.Exit(1)
 		}
-		var foundPkg bool = false
-		verbose, err := cmd.Flags().GetString("verbose")
+		for _, pkg := range args {
+			var foundPkg bool = false
+			verbose, err := cmd.Flags().GetString("verbose")
 
-		if err != nil {
-
-			panic(err)
-		}
-		location, err := os.Executable()
-		//redefine location so that it is the directory of the executable
-		location = location[:len(location)-len("ferment")]
-		if err != nil {
-
-			panic(err)
-		}
-		if verbose == "" {
-			verbose = "false"
-		}
-		if !IsUrl(args[0]) {
-			//search for package in default list
-			if verbose == "true" {
-				fmt.Println("Searching for package in default list")
-			}
-			files, err := os.ReadDir(fmt.Sprintf("%s/Barrells", location))
 			if err != nil {
+
 				panic(err)
 			}
-
-			for _, v := range files {
-				name := strings.ToLower(v.Name())
-				if strings.Split(name, ".")[0] == strings.ToLower(args[0]) {
-					if verbose == "true" {
-						fmt.Println("Found package in default list")
-					}
-					foundPkg = true
-					break
-				}
-			}
-			if !foundPkg {
-				fmt.Println("Package not found in default list or https URL invalid")
-				os.Exit(1)
-			}
-
-		}
-
-		if !foundPkg {
-			if strings.Contains(args[0], "http://") {
-				fmt.Println("http is not supported on Ferment, use a https url or just use a package name")
-				os.Exit(1)
-			}
-			s := spinner.New(spinner.CharSets[2], 100*time.Millisecond) // Build our new spinner
-			s.Suffix = color.GreenString(" Downloading Source...")
-			args[0] = strings.ToLower(args[0])
-			s.Start()
-			DownloadFromGithub(args[0], fmt.Sprintf("%s/Installed/%s", location, strings.Split(args[0], "https://")[1]), verbose)
-			s.Stop()
-			fmt.Println(color.GreenString("Downloaded Source"))
-			fmt.Println(color.YellowString("Cannot Install Source As It Is Not In Default List"))
-			os.Exit(0)
-		}
-
-		if UsingGit(args[0], verbose) {
-			s := spinner.New(spinner.CharSets[2], 100*time.Millisecond) // Build our new spinner
-			s.Suffix = color.GreenString(" Downloading Source...")
-			s.Start()
-			url := GetGitURL(args[0], verbose)
-			err := DownloadFromGithub(url, fmt.Sprintf("%s/Installed/%s", location, args[0]), verbose)
+			location, err := os.Executable()
+			//redefine location so that it is the directory of the executable
+			location = location[:len(location)-len("ferment")]
 			if err != nil {
-				s.Stop()
-				fmt.Println(color.RedString(err.Error()))
-				fmt.Println(color.RedString("Aborting"))
-				os.Exit(1)
+
+				panic(err)
 			}
-			s.Stop()
-			s = spinner.New(spinner.CharSets[2], 100*time.Millisecond) // Build our new spinner
-			s.Suffix = color.GreenString(" Installing Package...")
+			if verbose == "" {
+				verbose = "false"
+			}
+			if !IsUrl(pkg) {
+				//search for package in default list
+				if verbose == "true" {
+					fmt.Println("Searching for package in default list")
+				}
+				files, err := os.ReadDir(fmt.Sprintf("%s/Barrells", location))
+				if err != nil {
+					panic(err)
+				}
 
-			installPackages(args[0], verbose)
+				for _, v := range files {
+					name := strings.ToLower(v.Name())
+					if strings.Split(name, ".")[0] == strings.ToLower(pkg) {
+						if verbose == "true" {
+							fmt.Println("Found package in default list")
+						}
+						foundPkg = true
+						break
+					}
+				}
+				if !foundPkg {
+					fmt.Println("Package not found in default list or https URL invalid")
+					os.Exit(1)
+				}
 
-		} else {
-			s := spinner.New(spinner.CharSets[2], 100*time.Millisecond) // Build our new spinner
-			s.Suffix = color.GreenString(" Downloading Source...")
-			s.Start()
-			GetDownloadUrl(args[0], verbose)
-			DownloadInstructions(args[0])
-			s.Stop()
-			s = spinner.New(spinner.CharSets[36], 100*time.Millisecond) // Build our new spinner
-			s.Suffix = color.GreenString(" Installing Package...")
-			installPackages(args[0], verbose)
+			}
+
+			if !foundPkg {
+				if strings.Contains(pkg, "http://") {
+					fmt.Println("http is not supported on Ferment, use a https url or just use a package name")
+					os.Exit(1)
+				}
+				s := spinner.New(spinner.CharSets[2], 100*time.Millisecond) // Build our new spinner
+				s.Suffix = color.GreenString(" Downloading Source...")
+				pkg = strings.ToLower(pkg)
+				s.Start()
+				DownloadFromGithub(pkg, fmt.Sprintf("%s/Installed/%s", location, strings.Split(pkg, "https://")[1]), verbose)
+				s.Stop()
+				fmt.Println(color.GreenString("Downloaded Source"))
+				fmt.Println(color.YellowString("Cannot Install Source As It Is Not In Default List"))
+				os.Exit(0)
+			}
+
+			if UsingGit(pkg, verbose) {
+				s := spinner.New(spinner.CharSets[2], 100*time.Millisecond) // Build our new spinner
+				s.Suffix = color.GreenString(" Downloading Source...")
+				s.Start()
+				url := GetGitURL(pkg, verbose)
+				err := DownloadFromGithub(url, fmt.Sprintf("%s/Installed/%s", location, pkg), verbose)
+				if err != nil {
+					s.Stop()
+					fmt.Println(color.RedString(err.Error()))
+					fmt.Println(color.RedString("Aborting"))
+					os.Exit(1)
+				}
+				s.Stop()
+				s = spinner.New(spinner.CharSets[2], 100*time.Millisecond) // Build our new spinner
+				s.Suffix = color.GreenString(" Installing Package...")
+
+				installPackages(pkg, verbose)
+
+			} else {
+				_, err := os.ReadDir(fmt.Sprintf("%s/Installed/%s", location, pkg))
+				if err == nil {
+					fmt.Println(color.GreenString("Package Already Installed"))
+					continue
+				}
+				s := spinner.New(spinner.CharSets[2], 100*time.Millisecond) // Build our new spinner
+				s.Suffix = color.GreenString(" Downloading Source...")
+				s.Start()
+				GetDownloadUrl(pkg, verbose)
+				DownloadInstructions(pkg)
+				s.Stop()
+				s = spinner.New(spinner.CharSets[36], 100*time.Millisecond) // Build our new spinner
+				s.Suffix = color.GreenString(" Installing Package...")
+				installPackages(pkg, verbose)
+			}
 		}
 
 	},
@@ -298,6 +305,7 @@ func installPackages(pkg string, verbose string) {
 
 		}
 	}
+	fmt.Printf("Installing %s", pkg)
 	s := spinner.New(spinner.CharSets[36], 100*time.Millisecond)
 	s.Suffix = " Installing " + pkg
 	s.FinalMSG = color.GreenString("Installed " + pkg + "\n")

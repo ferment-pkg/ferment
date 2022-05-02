@@ -31,20 +31,25 @@ var uninstallCmd = &cobra.Command{
 			fmt.Println("Please specify a package to uninstall")
 			os.Exit(1)
 		}
-		if !IsUrl(args[0]) {
-			checkIfPackageExists(args[0])
-		} else {
-			if strings.Contains(args[0], "http://") {
-				fmt.Println("Ferment Does Not Support http packages")
-				os.Exit(1)
+		for _, pkg := range args {
+			if !IsUrl(pkg) {
+				checkIfPackageExists(pkg)
+			} else {
+				if strings.Contains(pkg, "http://") {
+					fmt.Println("Ferment Does Not Support http packages")
+					continue
+				}
+				pkg = strings.Split(pkg, "https://")[1]
+				if !checkIfPackageExists(strings.ToLower(pkg)) {
+					fmt.Println("Package Does Not Exist")
+					continue
+				}
+				os.RemoveAll(fmt.Sprintf("%s/Installed/%s", location, strings.ToLower(pkg)))
+				fmt.Println(color.GreenString("Package Uninstalled Successfully"))
+				continue
 			}
-			args[0] = strings.Split(args[0], "https://")[1]
-			checkIfPackageExists(strings.ToLower(args[0]))
-			os.RemoveAll(fmt.Sprintf("%s/Installed/%s", location, strings.ToLower(args[0])))
-			fmt.Println(color.GreenString("Package Uninstalled Successfully"))
-			os.Exit(0)
+			GetUninstallInstructions(pkg)
 		}
-		GetUninstallInstructions(args[0])
 
 	},
 }
@@ -106,7 +111,7 @@ func GetUninstallInstructions(pkg string) {
 	}
 
 }
-func checkIfPackageExists(pkg string) {
+func checkIfPackageExists(pkg string) bool {
 	location, err := os.Executable()
 	if err != nil {
 		panic(err)
@@ -114,7 +119,7 @@ func checkIfPackageExists(pkg string) {
 	location = location[:len(location)-len("/ferment")]
 	_, err = os.ReadDir(fmt.Sprintf("%s/Installed/%s", location, pkg))
 	if err != nil {
-		fmt.Println("Package not installed")
-		os.Exit(1)
+		return true
 	}
+	return false
 }
