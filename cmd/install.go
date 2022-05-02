@@ -128,9 +128,7 @@ var installCmd = &cobra.Command{
 				s.Stop()
 				s = spinner.New(spinner.CharSets[36], 100*time.Millisecond) // Build our new spinner
 				s.Suffix = color.GreenString(" Installing Package...")
-				s.Start()
 				installPackages(pkg, verbose)
-				s.Stop()
 			}
 		}
 

@@ -16,7 +16,9 @@ class task(Barrells):
         subprocess.call(["make","install"], cwd=self.cwd, stdout=sys.stdout)
         return super().install()
     def uninstall(self) -> bool:
-        os.remove("/usr/local/bin/task")
-        return super().uninstall()
+        try:
+            os.remove("/usr/local/bin/task")
+        finally:
+            return super().uninstall()
         
         
