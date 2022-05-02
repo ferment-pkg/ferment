@@ -1,4 +1,6 @@
 # Ferment  ![Build](https://github.com/NotTimIsReal/Ferment/actions/workflows/build.yml/badge.svg)
+<image src="images/logo.svg" width="150px">
+
 ## Fast and efficent package manager written in GO
 ## Uses Python For Installation And Uninstallation
 # Installation:
@@ -27,6 +29,8 @@ Architecture: amd64, arm64
 ```sh
 ferment install <packages>
 ```
+<image src="images/output.gif" >
+
 ## Uninstall
 ```sh
 ferment uninstall <packages>

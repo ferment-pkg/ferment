@@ -13,9 +13,11 @@ class cmake(Barrells):
         os.symlink(f"{self.cwd}/CMake.app","/Applications/CMake.app")
         return super().install()
     def uninstall(self) -> bool:
-        os.remove("/usr/local/bin/cmake")
-        os.remove("/usr/local/bin/ccmake")
-        os.remove("/usr/local/bin/cpack")
-        os.remove("/usr/local/bin/ctest")
-        os.remove("/Applications/CMake.app")
-        return super().uninstall()
+        try:
+            os.remove("/usr/local/bin/cmake")
+            os.remove("/usr/local/bin/ccmake")
+            os.remove("/usr/local/bin/cpack")
+            os.remove("/usr/local/bin/ctest")
+            os.remove("/Applications/CMake.app")
+        finally:
+            return super().uninstall()
