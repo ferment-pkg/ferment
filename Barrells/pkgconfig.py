@@ -1,4 +1,5 @@
 #Credit: Kareku Sato - https://noknow.info/it/os/install_pkg_config_from_source?lang=en
+import subprocess
 import requests
 import os
 import platform
@@ -11,6 +12,7 @@ class pkgconfig(Barrells):
         self.dependencies=["autoconf", "automake", "libtool"]
     def install(self):
             os.chdir(self.cwd)
+            args=["--disable-debug", f"--prefix={self.cwd}/built","--disable-host-tool", " --with-internal-glib"]
             #https://github.com/ferment-pkg/pkg-config-prebuilt
             if "x86_64" in platform.machine():
                 # Use prebuilt amd64 binary
@@ -22,7 +24,9 @@ class pkgconfig(Barrells):
                 os.symlink(f"{self.cwd}/built/amd64/bin/pkg-config", "/usr/local/bin/pkg-config")
                 os.symlink(f"{self.cwd}/built/amd64/share/aclocal/pkg.m4", "/usr/local/share/aclocal/pkg.m4")
             else: 
-                os.system(f"./configure --prefix={self.cwd}/built --with-internal-glib && make && make install")
+                subprocess.call(["sh","configure", *args])
+                subprocess.call(["make"])
+                subprocess.call(["make","install"])
                 os.symlink(f"{self.cwd}/built/bin/pkg-config", "/usr/local/bin/pkg-config")
                 os.symlink(f"{self.cwd}/built/share/aclocal/pkg.m4", "/usr/local/share/aclocal/pkg.m4")
     def uninstall(self) -> bool:

@@ -283,6 +283,11 @@ func installPackages(pkg string, verbose string) {
 				fmt.Println(color.YellowString("Skipping"))
 				continue
 			}
+			if IsLib(dep) && checkIfPackageExists(dep) {
+				fmt.Printf(color.YellowString("%s is a library and is already installed\n"), dep)
+				fmt.Println(color.YellowString("Skipping"))
+				continue
+			}
 			_, err = os.ReadFile(fmt.Sprintf("%s/Barrells/%s.py", location, strings.ToLower(dep)))
 			if err != nil {
 				fmt.Println("Not Downloadable By Ferment, Skipping")
@@ -674,5 +679,39 @@ func DownloadInstructions(pkg string) {
 	closer.Close()
 	w.Close()
 	cmd.Wait()
+
+}
+func IsLib(pkg string) bool {
+	location, _ := os.Executable()
+	location = location[:len(location)-len("/ferment")]
+	content, err := os.ReadFile(fmt.Sprintf("%s/Barrells/%s.py", location, strings.ToLower(pkg)))
+	if err != nil {
+		panic(err)
+	}
+	cmd := exec.Command("python3")
+	closer, err := cmd.StdinPipe()
+	if err != nil {
+		panic(err)
+	}
+	defer closer.Close()
+	r, w, _ := os.Pipe()
+	cmd.Stdout = w
+	cmd.Stderr = w
+	cmd.Dir = fmt.Sprintf("%s/Barrells", location)
+	cmd.Start()
+	closer.Write(content)
+	closer.Write([]byte("\n"))
+	io.WriteString(closer, fmt.Sprintf("pkg=%s()\n", strings.ToLower(pkg)))
+	io.WriteString(closer, "print(pkg.lib)\n")
+	closer.Close()
+	w.Close()
+	cmd.Wait()
+	var buf bytes.Buffer
+	io.Copy(&buf, r)
+	if strings.Contains(buf.String(), "no attribute") {
+		return false
+	} else {
+		return strings.Contains(buf.String(), "True")
+	}
 
 }

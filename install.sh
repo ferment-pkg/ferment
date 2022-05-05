@@ -20,8 +20,7 @@ if [ "$PYTHONEXE" = "" ]; then
 fi
 echo "Python3 Is Installed"
 echo "Adding Project To PATH"
-ln -s bin/$ARCH/ferment-$ARCH ./ferment
-echo export PATH='$PATH':$PWD >> $HOME/.zshrc
+ln -sf $PWD/bin/$ARCH/ferment-$ARCH /usr/local/bin/ferment  
 echo "Updated Path in .zshrc"
 echo "Install Completed"
 exit 0

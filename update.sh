@@ -18,7 +18,7 @@ if [ "$ARCH" = "x86_64" ]; then
 else 
     ARCH="arm64"
 fi
-ln -sf $PWD/bin/$ARCH/ferment-$ARCH ferment
+ln -sf $PWD/bin/$ARCH/ferment-$ARCH /usr/local/bin/ferment
 echo "DONE"
 exit 0
 
