@@ -24,7 +24,10 @@ echo "Adding Project To PATH"
 mkdir -p /usr/local/bin
 ln -sf bin/$ARCH/ferment-$ARCH ferment
 zshrcOut=$(cat ~/.zshrc|grep ferment)
-echo export PATH='$PATH':$PWD >> $HOME/.zshrc
+if [ "$zshrcOut" = "" ]; then
+  echo "Adding ferment to your zshrc"
+  echo export PATH='$PATH':$PWD >> $HOME/.zshrc
+fi
 echo "Updated Path in .zshrc"
 echo "Run source ~/.zshrc to update PATH"
 echo "Install Completed"
