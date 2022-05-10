@@ -23,7 +23,7 @@ echo "Python3 Is Installed"
 echo "Adding Project To PATH"
 mkdir -p /usr/local/bin
 ln -sf bin/$ARCH/ferment-$ARCH ferment
-zshrcOut=$(cat ~/.zshrc|grep ferment)
+zshrcOut=$(cat ~/.zshrc|grep /usr/local/ferment)
 if [ "$zshrcOut" = "" ]; then
   echo "Adding ferment to your zshrc"
   echo export PATH='$PATH':$PWD >> $HOME/.zshrc
