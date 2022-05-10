@@ -41,6 +41,7 @@ func init() {
 	// searchCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
 }
 func SearchForPackages(pkg string) {
+	pkg = convertToReadableString(strings.ToLower(pkg))
 	location, err := os.Executable()
 	if err != nil {
 		panic(err)

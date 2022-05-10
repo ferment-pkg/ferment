@@ -1,5 +1,6 @@
 import os
 import subprocess
+from time import sleep
 from index import Barrells
 class automake(Barrells):
     def __init__(self):
@@ -10,9 +11,12 @@ class automake(Barrells):
     def install(self) -> bool:
         os.chdir(self.cwd)
         os.environ["PERL"]="/usr/bin/perl"
-        subprocess.call(["sh","configure", f"--prefix={self.cwd}/built"])
+        subprocess.run(["sh","./configure", f"--prefix={self.cwd}/built"], timeout=1200)
         subprocess.call(["make"])
-        subprocess.call(["make","install"])
+        subprocess.call(["make"])
+        #wait a second for the make to finish
+        sleep(1)
+        subprocess.call(["make","install"], timeout=120)
         os.symlink(f"{self.cwd}/built/bin/aclocal", "/usr/local/bin/aclocal")
         os.symlink(f"{self.cwd}/built/bin/automake", "/usr/local/bin/automake")
         os.symlink(f"{self.cwd}/built/bin/automake-1.14", "/usr/local/bin/automake-1.14")
@@ -22,7 +26,7 @@ class automake(Barrells):
         try:
             os.remove("/usr/local/bin/automake")
             os.remove("/usr/local/bin/aclocal")
-            os.remove("/usr/local/bin/automake-1.16")
-            os.remove("/usr/local/bin/aclocal-1.16")
+            os.remove("/usr/local/bin/automake-1.14")
+            os.remove("/usr/local/bin/aclocal-1.14")
         finally:
             return super().uninstall()

@@ -1,3 +1,4 @@
+import subprocess
 from typing import Optional
 import os
 class Barrells:
@@ -39,3 +40,7 @@ class Barrells:
         home=os.getenv("HOME")
         with open(f"{home}/.zshrc", "a") as f:
             f.write(f"PATH=$PATH:{path}")
+    def SetPkgConfigPath(self)->None:
+        os.environ["PKG_CONFIG_PATH"]="/usr/local/lib/pkgconfig"
+    def runcmdincwd(self, cmd):
+        return subprocess.run(cmd, cwd=self.cwd)

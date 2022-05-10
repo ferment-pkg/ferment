@@ -68,6 +68,7 @@ func init() {
 	// uninstallCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
 }
 func GetUninstallInstructions(pkg string) {
+	pkg = convertToReadableString(strings.ToLower(pkg))
 	location, err := os.Executable()
 	if err != nil {
 		panic(err)
@@ -111,6 +112,7 @@ func GetUninstallInstructions(pkg string) {
 
 }
 func checkIfPackageExists(pkg string) bool {
+	pkg = convertToReadableString(strings.ToLower(pkg))
 	location, err := os.Executable()
 	if err != nil {
 		panic(err)

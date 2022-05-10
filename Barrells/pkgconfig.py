@@ -29,6 +29,8 @@ class pkgconfig(Barrells):
                 subprocess.call(["make","install"])
                 os.symlink(f"{self.cwd}/built/bin/pkg-config", "/usr/local/bin/pkg-config")
                 os.symlink(f"{self.cwd}/built/share/aclocal/pkg.m4", "/usr/local/share/aclocal/pkg.m4")
+            os.mkdir("/usr/local/lib/pkgconfig")
+            os.link()
     def uninstall(self) -> bool:
         try:
             os.remove("/usr/local/bin/pkg-config")

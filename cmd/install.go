@@ -53,6 +53,7 @@ var installCmd = &cobra.Command{
 			if verbose == "" {
 				verbose = "false"
 			}
+			pkg = convertToReadableString(strings.ToLower(pkg))
 			if !IsUrl(pkg) {
 				//search for package in default list
 				if verbose == "true" {
@@ -178,7 +179,7 @@ func UsingGit(pkg string, verbose string) bool {
 		panic(err)
 	}
 	location = location[:len(location)-len("ferment")]
-	content, err := os.ReadFile(fmt.Sprintf("%sBarrells/%s.py", location, strings.ToLower(pkg)))
+	content, err := os.ReadFile(fmt.Sprintf("%sBarrells/%s.py", location, convertToReadableString(strings.ToLower(pkg))))
 	if err != nil {
 		if strings.Contains(err.Error(), "no such file or directory") {
 			fmt.Println(color.RedString("Reinstall ferment, Barrells is missing"))
@@ -204,7 +205,7 @@ func UsingGit(pkg string, verbose string) bool {
 	cmd.Start()
 	closer.Write(content)
 	closer.Write([]byte("\n"))
-	io.WriteString(closer, fmt.Sprintf("pkg=%s()\n", strings.ToLower(pkg)))
+	io.WriteString(closer, fmt.Sprintf("pkg=%s()\n", convertToReadableString(strings.ToLower(pkg))))
 	io.WriteString(closer, "print(pkg.git)\n")
 	closer.Close()
 	w.Close()
@@ -226,7 +227,7 @@ func installPackages(pkg string, verbose string) {
 		panic(err)
 	}
 	location = location[:len(location)-len("/ferment")]
-	content, err := os.ReadFile(fmt.Sprintf("%s/Barrells/%s.py", location, strings.ToLower(pkg)))
+	content, err := os.ReadFile(fmt.Sprintf("%s/Barrells/%s.py", location, convertToReadableString(strings.ToLower(pkg))))
 	if err != nil {
 		if strings.Contains(err.Error(), "no such file or directory") {
 			fmt.Println(color.RedString("Reinstall ferment, Barrells is missing"))
@@ -250,7 +251,7 @@ func installPackages(pkg string, verbose string) {
 	cmd.Start()
 	closer.Write(content)
 	closer.Write([]byte("\n"))
-	io.WriteString(closer, fmt.Sprintf("pkg=%s()\n", strings.ToLower(pkg)))
+	io.WriteString(closer, fmt.Sprintf("pkg=%s()\n", convertToReadableString(strings.ToLower(pkg))))
 	io.WriteString(closer, "print(pkg.dependencies)\n")
 	closer.Close()
 	w.Close()
@@ -288,7 +289,7 @@ func installPackages(pkg string, verbose string) {
 				fmt.Println(color.YellowString("Skipping"))
 				continue
 			}
-			_, err = os.ReadFile(fmt.Sprintf("%s/Barrells/%s.py", location, strings.ToLower(dep)))
+			_, err = os.ReadFile(fmt.Sprintf("%s/Barrells/%s.py", location, convertToReadableString(strings.ToLower(pkg))))
 			if err != nil {
 				fmt.Println("Not Downloadable By Ferment, Skipping")
 				continue
@@ -315,7 +316,7 @@ func installPackages(pkg string, verbose string) {
 	s.Suffix = " Installing " + pkg
 	s.FinalMSG = color.GreenString("Installed " + pkg + "\n")
 	s.Start()
-	RunInstallationScript(pkg, verbose, pkg)
+	RunInstallationScript(convertToReadableString(strings.ToLower(pkg)), verbose, convertToReadableString(strings.ToLower(pkg)))
 	s.Stop()
 	s = spinner.New(spinner.CharSets[36], 100*time.Millisecond)
 	s.Suffix = " Installing Binaries For " + pkg
@@ -350,7 +351,7 @@ func GetGitURL(pkg string, verbose string) string {
 		panic(err)
 	}
 	location = location[:len(location)-len("/ferment")]
-	content, err := os.ReadFile(fmt.Sprintf("%s/Barrells/%s.py", location, strings.ToLower(pkg)))
+	content, err := os.ReadFile(fmt.Sprintf("%s/Barrells/%s.py", location, convertToReadableString(strings.ToLower(pkg))))
 	if err != nil {
 		if strings.Contains(err.Error(), "no such file or directory") {
 			fmt.Println(color.RedString("Reinstall ferment, Barrells is missing"))
@@ -374,7 +375,7 @@ func GetGitURL(pkg string, verbose string) string {
 	cmd.Start()
 	closer.Write(content)
 	closer.Write([]byte("\n"))
-	io.WriteString(closer, fmt.Sprintf("pkg=%s()\n", strings.ToLower(pkg)))
+	io.WriteString(closer, fmt.Sprintf("pkg=%s()\n", convertToReadableString(strings.ToLower(pkg))))
 	io.WriteString(closer, "print(pkg.url)\n")
 	closer.Close()
 	w.Close()
@@ -403,7 +404,7 @@ func DownloadFromTar(pkg string, url string, verbose string) string {
 	if verbose == "true" {
 		fmt.Println("Extracting Tar")
 	}
-	path, err := Untar(fmt.Sprintf("%s/Installed/", location), resp.Body, pkg)
+	path, err := Untar(fmt.Sprintf("%s/Installed/", location), resp.Body, convertToReadableString(strings.ToLower(pkg)))
 	if err != nil {
 		fmt.Println(color.RedString("Unable to extract %s", pkg))
 		panic(err)
@@ -420,7 +421,7 @@ func GetDownloadUrl(pkg string, verbose string) string {
 		panic(err)
 	}
 	location = location[:len(location)-len("/ferment")]
-	content, err := os.ReadFile(fmt.Sprintf("%s/Barrells/%s.py", location, strings.ToLower(pkg)))
+	content, err := os.ReadFile(fmt.Sprintf("%s/Barrells/%s.py", location, convertToReadableString(strings.ToLower(pkg))))
 	if err != nil {
 		if strings.Contains(err.Error(), "no such file or directory") {
 			fmt.Println(color.RedString("Reinstall ferment, Barrells is missing"))
@@ -444,14 +445,14 @@ func GetDownloadUrl(pkg string, verbose string) string {
 	cmd.Start()
 	closer.Write(content)
 	closer.Write([]byte("\n"))
-	io.WriteString(closer, fmt.Sprintf("pkg=%s()\n", strings.ToLower(pkg)))
+	io.WriteString(closer, fmt.Sprintf("pkg=%s()\n", convertToReadableString(strings.ToLower(pkg))))
 	io.WriteString(closer, "print(pkg.url)\n")
 	closer.Close()
 	w.Close()
 	cmd.Wait()
 	var buf bytes.Buffer
 	io.Copy(&buf, r)
-	path := DownloadFromTar(pkg, strings.Replace(buf.String(), "\n", "", -1), verbose)
+	path := DownloadFromTar(convertToReadableString(strings.ToLower(pkg)), strings.Replace(buf.String(), "\n", "", -1), verbose)
 	return path
 }
 func Untar(dst string, r io.Reader, pkg string) (string, error) {
@@ -527,7 +528,7 @@ func RunInstallationScript(pkg string, verbose string, cwd string) {
 	if err != nil {
 		panic(err)
 	}
-	content, err := os.ReadFile(fmt.Sprintf("%s/Barrells/%s.py", location, strings.ToLower(pkg)))
+	content, err := os.ReadFile(fmt.Sprintf("%s/Barrells/%s.py", location, convertToReadableString(strings.ToLower(pkg))))
 	if err != nil {
 		panic(err)
 	}
@@ -547,7 +548,8 @@ func RunInstallationScript(pkg string, verbose string, cwd string) {
 	cmd.Start()
 	closer.Write(content)
 	closer.Write([]byte("\n"))
-	io.WriteString(closer, fmt.Sprintf("pkg=%s()\n", strings.ToLower(pkg)))
+
+	io.WriteString(closer, fmt.Sprintf("pkg=%s()\n", convertToReadableString(strings.ToLower(pkg))))
 	io.WriteString(closer, fmt.Sprintf(`pkg.cwd="%s/Installed/%s"`+"\n", location, cwd))
 	io.WriteString(closer, "pkg.install()\n")
 	closer.Close()
@@ -555,8 +557,8 @@ func RunInstallationScript(pkg string, verbose string, cwd string) {
 	cmd.Wait()
 	var buf bytes.Buffer
 	io.Copy(&buf, r)
-	buf.Reset()
 	//print nothing
+	buf.Reset()
 	fmt.Println(buf.String())
 
 }
@@ -569,7 +571,7 @@ func TestInstallationScript(pkg string, verbose string) bool {
 	if err != nil {
 		panic(err)
 	}
-	content, err := os.ReadFile(fmt.Sprintf("%s/Barrells/%s.py", location, strings.ToLower(pkg)))
+	content, err := os.ReadFile(fmt.Sprintf("%s/Barrells/%s.py", location, convertToReadableString(strings.ToLower(pkg))))
 	if err != nil {
 		panic(err)
 	}
@@ -589,7 +591,7 @@ func TestInstallationScript(pkg string, verbose string) bool {
 	cmd.Start()
 	closer.Write(content)
 	closer.Write([]byte("\n"))
-	io.WriteString(closer, fmt.Sprintf("pkg=%s()\n", strings.ToLower(pkg)))
+	io.WriteString(closer, fmt.Sprintf("pkg=%s()\n", convertToReadableString(strings.ToLower(pkg))))
 	io.WriteString(closer, "pkg.test()\n")
 	closer.Close()
 	w.Close()
@@ -611,7 +613,7 @@ func InstallBinary(pkg string, verbose string) string {
 	if err != nil {
 		panic(err)
 	}
-	content, err := os.ReadFile(fmt.Sprintf("%s/Barrells/%s.py", location, strings.ToLower(pkg)))
+	content, err := os.ReadFile(fmt.Sprintf("%s/Barrells/%s.py", location, convertToReadableString(strings.ToLower(pkg))))
 	if err != nil {
 		panic(err)
 	}
@@ -631,7 +633,7 @@ func InstallBinary(pkg string, verbose string) string {
 	cmd.Start()
 	closer.Write(content)
 	closer.Write([]byte("\n"))
-	io.WriteString(closer, fmt.Sprintf("pkg=%s()\n", strings.ToLower(pkg)))
+	io.WriteString(closer, fmt.Sprintf("pkg=%s()\n", convertToReadableString(strings.ToLower(pkg))))
 	io.WriteString(closer, "print(pkg.binary)\n")
 	closer.Close()
 	w.Close()
@@ -656,7 +658,7 @@ func DownloadInstructions(pkg string) {
 	if err != nil {
 		panic(err)
 	}
-	content, err := os.ReadFile(fmt.Sprintf("%s/Barrells/%s.py", location, strings.ToLower(pkg)))
+	content, err := os.ReadFile(fmt.Sprintf("%s/Barrells/%s.py", location, convertToReadableString(strings.ToLower(pkg))))
 	if err != nil {
 		panic(err)
 	}
@@ -673,8 +675,8 @@ func DownloadInstructions(pkg string) {
 	cmd.Start()
 	closer.Write(content)
 	closer.Write([]byte("\n"))
-	io.WriteString(closer, fmt.Sprintf("pkg=%s()\n", strings.ToLower(pkg)))
-	io.WriteString(closer, fmt.Sprintf("pkg.cwd=%s\n", fmt.Sprintf(`"%s/Installed/%s"`, location, pkg)))
+	io.WriteString(closer, fmt.Sprintf("pkg=%s()\n", convertToReadableString(strings.ToLower(pkg))))
+	io.WriteString(closer, fmt.Sprintf("pkg.cwd=%s\n", fmt.Sprintf(`"%s/Installed/%s"`, location, convertToReadableString(strings.ToLower(pkg)))))
 	io.WriteString(closer, "pkg.download()\n")
 	closer.Close()
 	w.Close()
@@ -684,7 +686,7 @@ func DownloadInstructions(pkg string) {
 func IsLib(pkg string) bool {
 	location, _ := os.Executable()
 	location = location[:len(location)-len("/ferment")]
-	content, err := os.ReadFile(fmt.Sprintf("%s/Barrells/%s.py", location, strings.ToLower(pkg)))
+	content, err := os.ReadFile(fmt.Sprintf("%s/Barrells/%s.py", location, convertToReadableString(strings.ToLower(pkg))))
 	if err != nil {
 		panic(err)
 	}
@@ -701,7 +703,7 @@ func IsLib(pkg string) bool {
 	cmd.Start()
 	closer.Write(content)
 	closer.Write([]byte("\n"))
-	io.WriteString(closer, fmt.Sprintf("pkg=%s()\n", strings.ToLower(pkg)))
+	io.WriteString(closer, fmt.Sprintf("pkg=%s()\n", convertToReadableString(strings.ToLower(pkg))))
 	io.WriteString(closer, "print(pkg.lib)\n")
 	closer.Close()
 	w.Close()
@@ -714,4 +716,11 @@ func IsLib(pkg string) bool {
 		return strings.Contains(buf.String(), "True")
 	}
 
+}
+func convertToReadableString(pkg string) string {
+	pkg = strings.Replace(pkg, "-", "", -1)
+	pkg = strings.Replace(pkg, "_", "", -1)
+	pkg = strings.Replace(pkg, ".", "", -1)
+	pkg = strings.Replace(pkg, " ", "", -1)
+	return pkg
 }

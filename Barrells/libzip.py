@@ -13,6 +13,10 @@ class libzip(Barrells):
         subprocess.call(["cmake","-DCMAKE_BUILD_TYPE=release"," ".join(args),"."], cwd=self.cwd)
         subprocess.call(["make", "install"], cwd=self.cwd)
         os.symlink(f"{self.cwd}/lib/zip.h","/usr/local/include/zip.h")
+        if "0" in os.system("which pkg-config"):
+            os.symlink(f"{self.cwd}/libzip.pc","/usr/local/lib/pkgconfig/libzip.pc")
+            
+            
         return super().install()
     def uninstall(self) -> bool:
         os.remove("/usr/local/include/zip.h")

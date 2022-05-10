@@ -37,6 +37,7 @@ var reinstallCmd = &cobra.Command{
 					continue
 				}
 			}
+			pkg = convertToReadableString(strings.ToLower(pkg))
 			cmd := exec.Command("ferment", "uninstall", pkg)
 			cmd.Stdout = os.Stdout
 			cmd.Stderr = os.Stderr
