@@ -10,6 +10,11 @@
 - [xcode-cli](https://www.freecodecamp.org/news/install-xcode-command-line-tools/)
 
 ## Install:
+  
+```sh
+curl -SsL https://ferment.tk/install.sh | sh
+```
+  or
 ```sh
 git clone https://github.com/NotTimIsReal/Ferment.git /usr/local/Ferment/
 cd /usr/local/Ferment/
