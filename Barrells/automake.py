@@ -19,14 +19,14 @@ class automake(Barrells):
         subprocess.call(["make","install"], timeout=120)
         os.symlink(f"{self.cwd}/built/bin/aclocal", "/usr/local/bin/aclocal")
         os.symlink(f"{self.cwd}/built/bin/automake", "/usr/local/bin/automake")
-        os.symlink(f"{self.cwd}/built/bin/automake-1.14", "/usr/local/bin/automake-1.14")
-        os.symlink(f"{self.cwd}/built/bin/aclocal-1.14", "/usr/local/bin/aclocal-1.14")
+        os.symlink(f"{self.cwd}/built/bin/automake-1.14", "/usr/local/bin/automake-1.16")
+        os.symlink(f"{self.cwd}/built/bin/aclocal-1.14", "/usr/local/bin/aclocal-1.16")
         super().install()
     def uninstall(self) -> bool:
         try:
             os.remove("/usr/local/bin/automake")
             os.remove("/usr/local/bin/aclocal")
-            os.remove("/usr/local/bin/automake-1.14")
-            os.remove("/usr/local/bin/aclocal-1.14")
+            os.remove("/usr/local/bin/automake-1.16")
+            os.remove("/usr/local/bin/aclocal-1.16")
         finally:
             return super().uninstall()
