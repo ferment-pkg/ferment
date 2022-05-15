@@ -28,6 +28,12 @@ if [ "$zshrcOut" = "" ]; then
   echo "Adding ferment to your zshrc"
   echo export PATH='$PATH':$PWD >> $HOME/.zshrc
 fi
+echo "Checking If Packages Have Been Cloned..."
+if [[ ! -d "Barrells" ]]
+then 
+  echo "Cloning Barrells"
+  git clone https://github.com/ferment-pkg/Barrells Barrells
+fi
 echo "Updated Path in .zshrc"
 echo "Run source ~/.zshrc to update PATH"
 echo "Install Completed"
