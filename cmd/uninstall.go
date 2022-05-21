@@ -25,7 +25,6 @@ var uninstallCmd = &cobra.Command{
 	Short: "Uninstall A Package",
 	Long:  `Uninstall A Package That Has Been Installed By Ferment`,
 	Run: func(cmd *cobra.Command, args []string) {
-
 		location, err := os.Executable()
 		if err != nil {
 			panic(err)
