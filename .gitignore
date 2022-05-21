@@ -1,9 +1,5 @@
 ferment
 Installed
 !bin
-<<<<<<< HEAD
 Barrells
 dependencies.json
-=======
-Barrells/__pycache__
->>>>>>> 9acf9fb5dd03ceb00f34bdab53d86f646ccd5867
