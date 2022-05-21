@@ -153,6 +153,16 @@ func getDepInfo(pkg string) {
 	var realDeps Dep
 	for _, dep := range dependencies.Deps {
 		if strings.Contains(dep.ReliedBy, pkg) && !dep.InstalledByUser {
+			s := strings.Split(dep.ReliedBy, " ")
+			var requiredByDiff bool = false
+			for _, d := range s {
+				if d != "" && d != pkg {
+					requiredByDiff = true
+				}
+			}
+			if requiredByDiff {
+				continue
+			}
 			realDeps.Deps = append(realDeps.Deps, dep)
 
 		}

@@ -1,6 +1,6 @@
 echo "This Is A Tool To Build The Project"
-echo "Do you want to rebuild the project?(y/n)"
-read answer
+read -p "Do you want to rebuild the project? (y/n)" -n 1 -r -s answer
+echo 
 if [ $answer != "y" ];then
      echo "Abort!"
      exit 1
