@@ -14,8 +14,8 @@ function UpdatePackages(){
         git clone https://github.com/ferment-pkg/Barrells Barrells
     else
         r=$(cd Barrells)
-        result=$(git pull)
-        if [ "$result" = "fatal: not a git repository (or any of the parent directories): .git" ] 
+        result=$(git pull -c Barrells)
+        if [ "$result" = "fatal: not a git repository (or any of the parent directories): .git" ]
         then
             echo "Packages Are Not Installed"
             echo "Installing Packages..."
@@ -23,7 +23,7 @@ function UpdatePackages(){
             git clone https://github.com/ferment-pkg/Barrells .
         fi
     fi
- 
+
 }
 
 if [ "$result" = "Already up to date." ]; then
@@ -37,7 +37,7 @@ echo "NEW VERSION: $v"
 ARCH=$(uname -m)
 if [ "$ARCH" = "x86_64" ]; then
     ARCH="amd64"
-else 
+else
     ARCH="arm64"
 fi
 ln -sf $PWD/bin/$ARCH/ferment-$ARCH /usr/local/ferment/ferment
