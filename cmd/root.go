@@ -32,6 +32,7 @@ Run ferment install your first package.`,
 		}
 		if v {
 			resp, _ := http.Get("https://raw.githubusercontent.com/ferment-pkg/ferment/main/VERSION.meta")
+			resp.Request.Header.Set("Cache-Control", "private, no-store, max-age=0")
 			var buf bytes.Buffer
 			io.Copy(&buf, resp.Body)
 			location, err := os.Executable()

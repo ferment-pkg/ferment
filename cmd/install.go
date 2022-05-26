@@ -7,11 +7,13 @@ package cmd
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -25,6 +27,9 @@ import (
 	"github.com/go-git/go-git/v5"
 	"github.com/spf13/cobra"
 )
+
+var l, _ = os.Executable()
+var location = l[:len(l)-len("/ferment")]
 
 // installCmd represents the install command
 var installCmd = &cobra.Command{
@@ -83,21 +88,18 @@ var installCmd = &cobra.Command{
 			}
 
 			if !foundPkg {
-				if strings.Contains(pkg, "http://") {
-					fmt.Println("http is not supported on Ferment, use a https url or just use a package name")
-					os.Exit(1)
-				}
+				color.RedString("ERROR: %s", errors.New("downloading from url is not supported anymore"))
+				os.Exit(1)
+			}
+			if checkifPrebuildSuitable(pkg) {
 				s := spinner.New(spinner.CharSets[2], 100*time.Millisecond) // Build our new spinner
-				s.Suffix = color.GreenString(" Downloading Source...")
-				pkg = strings.ToLower(pkg)
+				s.Suffix = color.GreenString(" Downloading Prebuild...")
 				s.Start()
-				DownloadFromGithub(pkg, fmt.Sprintf("%s/Installed/%s", location, strings.Split(pkg, "https://")[1]), verbose)
+				DownloadFromTar(pkg, *getPrebuildURL(pkg), verbose)
 				s.Stop()
-				fmt.Println(color.GreenString("Downloaded Source"))
-				fmt.Println(color.YellowString("Cannot Install Source As It Is Not In Default List"))
+				installPackages(pkg, verbose, false, "")
 				os.Exit(0)
 			}
-
 			if UsingGit(pkg, verbose) {
 				s := spinner.New(spinner.CharSets[2], 100*time.Millisecond) // Build our new spinner
 				s.Suffix = color.GreenString(" Downloading Source...")
@@ -111,9 +113,6 @@ var installCmd = &cobra.Command{
 					os.Exit(1)
 				}
 				s.Stop()
-				s = spinner.New(spinner.CharSets[2], 100*time.Millisecond) // Build our new spinner
-				s.Suffix = color.GreenString(" Installing Package...")
-
 				installPackages(pkg, verbose, false, "")
 
 			} else {
@@ -324,7 +323,11 @@ func installPackages(pkg string, verbose string, isDep bool, installedBy string)
 	s.Suffix = " Installing " + pkg
 	s.FinalMSG = color.GreenString("Installed " + pkg + "\n")
 	s.Start()
-	RunInstallationScript(convertToReadableString(strings.ToLower(pkg)), verbose, convertToReadableString(strings.ToLower(pkg)))
+	if checkifPrebuildSuitable(pkg) {
+		InstallPrebuilds(pkg)
+	} else {
+		RunInstallationScript(convertToReadableString(strings.ToLower(pkg)), verbose, convertToReadableString(strings.ToLower(pkg)))
+	}
 	s.Stop()
 	s = spinner.New(spinner.CharSets[36], 100*time.Millisecond)
 	s.Suffix = " Installing Binaries For " + pkg
@@ -394,6 +397,12 @@ func GetGitURL(pkg string, verbose string) string {
 
 }
 func DownloadFromTar(pkg string, url string, verbose string) string {
+	var isGZ bool
+	if strings.Contains(url, ".gz") {
+		isGZ = true
+	} else {
+		isGZ = false
+	}
 	resp, err := http.Get(url)
 	if err != nil {
 		fmt.Println(color.RedString("Unable to download %s", pkg))
@@ -412,7 +421,7 @@ func DownloadFromTar(pkg string, url string, verbose string) string {
 	if verbose == "true" {
 		fmt.Println("Extracting Tar")
 	}
-	path, err := Untar(fmt.Sprintf("%s/Installed/", location), resp.Body, convertToReadableString(strings.ToLower(pkg)))
+	path, err := Untar(fmt.Sprintf("%s/Installed/", location), resp.Body, convertToReadableString(strings.ToLower(pkg)), isGZ)
 	if err != nil {
 		fmt.Println(color.RedString("Unable to extract %s", pkg))
 		panic(err)
@@ -463,8 +472,7 @@ func GetDownloadUrl(pkg string, verbose string) string {
 	path := DownloadFromTar(convertToReadableString(strings.ToLower(pkg)), strings.Replace(buf.String(), "\n", "", -1), verbose)
 	return path
 }
-func Untar(dst string, r io.Reader, pkg string) (string, error) {
-
+func Untar(dst string, r io.Reader, pkg string, isGz bool) (string, error) {
 	gzr, err := gzip.NewReader(r)
 	if err != nil {
 		return "", err
@@ -652,6 +660,7 @@ func InstallBinary(pkg string, verbose string) string {
 		return "No Binary"
 	} else {
 		binary := strings.Replace(buf.String(), "'", "", -1)
+		binary = strings.Replace(buf.String(), `"`, "", -1)
 		binary = strings.Replace(binary, "\n", "", -1)
 		err := os.Symlink(fmt.Sprintf("%s/Installed/%s/%s", location, pkg, binary), fmt.Sprintf("/usr/local/bin/%s", binary))
 		if err != nil {
@@ -843,4 +852,190 @@ func EditDepsTracker(pkg string, roots string) {
 		panic(err)
 	}
 	os.WriteFile("dependencies.json", []byte(c), 0644)
+}
+func InstallPrebuilds(pkg string) {
+	os.Chdir(location)
+	c, err := os.ReadFile(fmt.Sprintf("Barrells/%s.py", convertToReadableString(strings.ToLower(pkg))))
+	if err != nil {
+		color.RedString("ERROR: %s", err)
+		os.Exit(1)
+	}
+	cmd := exec.Command("python3")
+	closer, err := cmd.StdinPipe()
+	if err != nil {
+		panic(err)
+	}
+	defer closer.Close()
+	r, w, _ := os.Pipe()
+	cmd.Stdout = w
+	cmd.Stderr = w
+	cmd.Dir = fmt.Sprintf("%s/Barrells", location)
+	cmd.Start()
+	closer.Write(c)
+	closer.Write([]byte("\n"))
+	io.WriteString(closer, fmt.Sprintf("pkg=%s()\n", convertToReadableString(strings.ToLower(pkg))))
+	io.WriteString(closer, "pkg.prebuild.install()\n")
+	closer.Close()
+	w.Close()
+	cmd.Wait()
+	f, err := os.OpenFile("/tmp/ferment-install.log", os.O_APPEND|os.O_CREATE, 0666)
+	if err != nil {
+		color.RedString("ERROR: %s\n", err)
+	}
+	io.Copy(f, r)
+}
+func getSaidDeps(pkg string) []string {
+	os.Chdir(location)
+	c, err := os.ReadFile(fmt.Sprintf("Barrells/%s.py", convertToReadableString(strings.ToLower(pkg))))
+	if err != nil {
+		color.RedString("ERROR: %s", err)
+		os.Exit(1)
+	}
+	cmd := exec.Command("python3")
+	closer, err := cmd.StdinPipe()
+	if err != nil {
+		panic(err)
+	}
+	defer closer.Close()
+	r, w, _ := os.Pipe()
+	cmd.Stdout = w
+	cmd.Stderr = w
+	cmd.Dir = fmt.Sprintf("%s/Barrells", location)
+	cmd.Start()
+	closer.Write(c)
+	closer.Write([]byte("\n"))
+	io.WriteString(closer, fmt.Sprintf("pkg=%s()\n", convertToReadableString(strings.ToLower(pkg))))
+	io.WriteString(closer, "print(pkg.dependencies)\n")
+	closer.Close()
+	w.Close()
+	cmd.Wait()
+	var buf bytes.Buffer
+	io.Copy(&buf, r)
+	dependencies := strings.Split(buf.String(), "\n")[0]
+	dependencies = strings.Replace(dependencies, "[", "", 1)
+	dependencies = strings.Replace(dependencies, "]", "", 1)
+	dependencies = strings.Replace(dependencies, " ", "", -1)
+	dependencies = strings.Replace(dependencies, "'", "", -1)
+	dependencies = strings.Replace(dependencies, `"`, "", -1)
+	return strings.Split(dependencies, ",")
+
+}
+func checkifPrebuildSuitable(pkg string) bool {
+	arch := strings.ToLower(runtime.GOARCH)
+	c, err := os.ReadFile(fmt.Sprintf("%s/Barrells/%s.py", location, convertToReadableString(pkg)))
+	if err != nil {
+		color.RedString("ERROR: %s", err)
+		os.Exit(1)
+	}
+	content := string(c)
+	lines := strings.Split(content, "\n")
+	var isPrebuild bool
+	for _, line := range lines {
+		if !strings.ContainsAny(line, "=") {
+			continue
+		}
+		l := strings.Split(line, "=")
+		if strings.Contains(l[0], "self.prebuild") && !strings.Contains(l[0], "None") {
+			isPrebuild = true
+			break
+		}
+
+	}
+	if !isPrebuild {
+		return false
+	}
+	cmd := exec.Command("python3")
+	closer, err := cmd.StdinPipe()
+	if err != nil {
+		panic(err)
+	}
+	defer closer.Close()
+	r, w, _ := os.Pipe()
+	cmd.Stdout = w
+	cmd.Stderr = w
+	cmd.Dir = fmt.Sprintf("%s/Barrells", location)
+	cmd.Start()
+	closer.Write(c)
+	closer.Write([]byte("\n"))
+	io.WriteString(closer, fmt.Sprintf("pkg=%s()\n", convertToReadableString(strings.ToLower(pkg))))
+	io.WriteString(closer, "print(pkg.prebuild.amd64)\n")
+	io.WriteString(closer, "print(pkg.prebuild.arm64)\n")
+	closer.Close()
+	w.Close()
+	cmd.Wait()
+	var buf bytes.Buffer
+	io.Copy(&buf, r)
+	arm64 := strings.Split(buf.String(), "\n")[1]
+	amd64 := strings.Split(buf.String(), "\n")[0]
+	if arch == "arm64" && strings.Contains(arm64, "no attribute") {
+		return false
+	}
+
+	if arch == "amd64" && strings.Contains(amd64, "no attribute") {
+		return false
+	}
+	return true
+
+}
+func getPrebuildURL(pkg string) *string {
+	arch := strings.ToLower(runtime.GOARCH)
+	c, err := os.ReadFile(fmt.Sprintf("%s/Barrells/%s.py", location, convertToReadableString(pkg)))
+	if err != nil {
+		color.RedString("ERROR: %s", err)
+		os.Exit(1)
+	}
+	content := string(c)
+	lines := strings.Split(content, "\n")
+	var isPrebuild bool
+	for _, line := range lines {
+		if !strings.ContainsAny(line, "=") {
+			continue
+		}
+		l := strings.Split(line, "=")
+		if strings.Contains(l[0], "self.prebuild") && !strings.Contains(l[0], "None") {
+			isPrebuild = true
+			break
+		}
+
+	}
+	if !isPrebuild {
+		return nil
+	}
+	cmd := exec.Command("python3")
+	closer, err := cmd.StdinPipe()
+	if err != nil {
+		panic(err)
+	}
+	defer closer.Close()
+	r, w, _ := os.Pipe()
+	cmd.Stdout = w
+	cmd.Stderr = w
+	cmd.Dir = fmt.Sprintf("%s/Barrells", location)
+	cmd.Start()
+	closer.Write(c)
+	closer.Write([]byte("\n"))
+	io.WriteString(closer, fmt.Sprintf("pkg=%s()\n", convertToReadableString(strings.ToLower(pkg))))
+	io.WriteString(closer, "print(pkg.prebuild.amd64)\n")
+	io.WriteString(closer, "print(pkg.prebuild.arm64)\n")
+	closer.Close()
+	w.Close()
+	cmd.Wait()
+	var buf bytes.Buffer
+	io.Copy(&buf, r)
+	arm64 := strings.Split(buf.String(), "\n")[1]
+	amd64 := strings.Split(buf.String(), "\n")[0]
+	if arch == "arm64" && strings.Contains(arm64, "no attribute") {
+		return nil
+	}
+
+	if arch == "amd64" && strings.Contains(amd64, "no attribute") {
+		return nil
+	}
+	if arch == "amd64" {
+		return &amd64
+	}
+	if arch == "arm64" {
+		return &arm64
+	}
+	return nil
 }
