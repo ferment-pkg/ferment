@@ -14,7 +14,7 @@ function UpdatePackages(){
         git clone https://github.com/ferment-pkg/Barrells Barrells
     else
         r=$(cd Barrells)
-        result=$(git pull -C Barrells)
+        result=$(git -C Barrells pull)
         if [ "$result" = "fatal: not a git repository (or any of the parent directories): .git" ]
         then
             echo "Packages Are Not Installed"
