@@ -7,8 +7,8 @@ package cmd
 import (
 	"fmt"
 	"os"
-	"strings"
 
+	"github.com/fatih/color"
 	"github.com/go-git/go-git/v5"
 	"github.com/spf13/cobra"
 )
@@ -37,15 +37,23 @@ var upgradeCmd = &cobra.Command{
 		if err != nil {
 			panic(err)
 		}
-		err = w.Pull(&git.PullOptions{RemoteName: "origin"})
+		w.Pull(&git.PullOptions{RemoteName: "origin"})
+		fmt.Println("Version Updated To Latest")
+		fmt.Println("Updating Packages...")
+		err = os.Chdir("Barrells")
 		if err != nil {
-			if strings.Contains(err.Error(), "already up-to-date") {
-				fmt.Println("Already Up To Date")
-				os.Exit(0)
-			}
+			color.RedString("ERRORS: %s", err)
+		}
+		repo, err = git.PlainOpen(".")
+		if err != nil {
 			panic(err)
 		}
-		fmt.Println("Version Updated To Latest")
+		w, err = repo.Worktree()
+		if err != nil {
+			panic(err)
+		}
+		w.Pull(&git.PullOptions{RemoteName: "origin"})
+		fmt.Println("Successfully Updated All Packages!")
 
 	},
 }
