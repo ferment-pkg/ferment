@@ -36,5 +36,6 @@ then
 fi
 echo "Updated Path in .zshrc"
 echo "Run source ~/.zshrc to update PATH"
+echo "Add completions with /usr/local/ferment/completion.sh"
 echo "Install Completed"
 exit 0
