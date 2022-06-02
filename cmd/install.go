@@ -291,8 +291,8 @@ func installPackages(pkg string, verbose string, isDep bool, installedBy string)
 				fmt.Println(color.YellowString("Skipping"))
 				continue
 			}
-			_, err = os.ReadFile(fmt.Sprintf("%s/Barrells/%s.py", location, convertToReadableString(strings.ToLower(pkg))))
-			if err != nil {
+			_, err = os.Stat(fmt.Sprintf("%s/Barrells/%s.py", location, convertToReadableString(strings.ToLower(dep))))
+			if os.IsNotExist(err) {
 				fmt.Println("Not Downloadable By Ferment, Skipping")
 				continue
 			}
