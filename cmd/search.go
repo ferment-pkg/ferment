@@ -65,6 +65,12 @@ func SearchForPackages(pkg string) {
 		if name == "index" {
 			continue
 		}
+		if name == ".git" {
+			continue
+		}
+		if name == ".DS_STORE" {
+			continue
+		}
 		pkgsArray = append(pkgsArray, name)
 	}
 	//filter pkgsArray to only pkgs that contain pkg

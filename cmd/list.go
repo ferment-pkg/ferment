@@ -65,6 +65,9 @@ func ListAllNormalPackages() {
 	}
 	fmt.Println(color.BlueString("===> ") + color.GreenString("Listing All Installed Packages"))
 	for _, pkg := range pkgsArray {
+		if pkg == ".DS_STORE" || pkg == ".git" {
+			continue
+		}
 		fmt.Println(pkg)
 	}
 

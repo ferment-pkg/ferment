@@ -91,6 +91,11 @@ var installCmd = &cobra.Command{
 				color.RedString("ERROR: %s", errors.New("downloading from url is not supported anymore"))
 				os.Exit(1)
 			}
+			if checkIfSetupPkg(pkg) {
+				installPackageWithSetup(pkg)
+				installPackages(pkg, verbose, false, "")
+				os.Exit(0)
+			}
 			if checkifPrebuildSuitable(pkg) {
 				s := spinner.New(spinner.CharSets[2], 100*time.Millisecond) // Build our new spinner
 				s.Suffix = color.GreenString(" Downloading Prebuild...")
@@ -265,7 +270,7 @@ func installPackages(pkg string, verbose string, isDep bool, installedBy string)
 	dependencies = strings.Replace(dependencies, "'", "", -1)
 	dependenciesArr := strings.Split(dependencies, ",")
 	//run a function for each dependecy in dependenciesArr
-	if !strings.Contains(dependencies, "Traceback(mostrecentcalllast)") {
+	if !strings.Contains(dependencies, "Traceback(mostrecentcalllast)") && len(dependencies) != 0 {
 		for _, dep := range dependenciesArr {
 			fmt.Printf(color.YellowString("Package %s depends on %s\n"), pkg, dep)
 			cmd := exec.Command("which", strings.ReplaceAll(dep, "'", ""))
@@ -279,6 +284,11 @@ func installPackages(pkg string, verbose string, isDep bool, installedBy string)
 			cmd.Wait()
 			var buf bytes.Buffer
 			io.Copy(&buf, r)
+			_, err = os.Stat(fmt.Sprintf("%s/Barrells/%s.py", location, convertToReadableString(strings.ToLower(dep))))
+			if os.IsNotExist(err) {
+				fmt.Println("Not Downloadable By Ferment, Skipping")
+				continue
+			}
 			if buf.String() != "" {
 				fmt.Printf(color.YellowString("%s is already installed\n"), dep)
 				EditDepsTracker(dep, pkg)
@@ -291,11 +301,7 @@ func installPackages(pkg string, verbose string, isDep bool, installedBy string)
 				fmt.Println(color.YellowString("Skipping"))
 				continue
 			}
-			_, err = os.Stat(fmt.Sprintf("%s/Barrells/%s.py", location, convertToReadableString(strings.ToLower(dep))))
-			if os.IsNotExist(err) {
-				fmt.Println("Not Downloadable By Ferment, Skipping")
-				continue
-			}
+
 			fmt.Printf(color.YellowString("Now Downloading %s\n"), dep)
 			if UsingGit(dep, verbose) {
 				url := GetGitURL(dep, verbose)
@@ -305,6 +311,11 @@ func installPackages(pkg string, verbose string, isDep bool, installedBy string)
 				}
 				installPackages(dep, verbose, true, pkg)
 				//TestInstallationScript(dep, verbose)
+			} else if checkIfSetupPkg(dep) {
+				installPackageWithSetup(dep)
+				installPackages(dep, verbose, true, pkg)
+			} else if checkifPrebuildSuitable(dep) {
+				DownloadFromTar(pkg, *getPrebuildURL(pkg), verbose)
 			} else {
 				GetDownloadUrl(dep, verbose)
 				installPackages(dep, verbose, true, pkg)
@@ -321,14 +332,15 @@ func installPackages(pkg string, verbose string, isDep bool, installedBy string)
 	fmt.Printf("Installing %s", pkg)
 	s := spinner.New(spinner.CharSets[36], 100*time.Millisecond)
 	s.Suffix = " Installing " + pkg
-	s.FinalMSG = color.GreenString("Installed " + pkg + "\n")
 	s.Start()
 	if checkifPrebuildSuitable(pkg) {
 		InstallPrebuilds(pkg)
 	} else {
 		RunInstallationScript(convertToReadableString(strings.ToLower(pkg)), verbose, convertToReadableString(strings.ToLower(pkg)))
 	}
+	time.Sleep(time.Millisecond * 500)
 	s.Stop()
+	color.Green("Installed %s", pkg)
 	s = spinner.New(spinner.CharSets[36], 100*time.Millisecond)
 	s.Suffix = " Installing Binaries For " + pkg
 	s.FinalMSG = color.GreenString("Installed Binary For " + pkg + "\n")
@@ -1038,4 +1050,99 @@ func getPrebuildURL(pkg string) *string {
 		return &arm64
 	}
 	return nil
+}
+func checkIfSetupPkg(pkg string) bool {
+	c, err := os.ReadFile(fmt.Sprintf("%s/Barrells/%s.py", location, convertToReadableString(pkg)))
+	if err != nil {
+		color.RedString("ERROR: %s", err)
+		os.Exit(1)
+	}
+	content := string(c)
+	lines := strings.Split(content, "\n")
+	var isSetup bool = false
+	for _, line := range lines {
+		if !strings.ContainsAny(line, "=") {
+			continue
+		}
+		l := strings.Split(line, "=")
+		if strings.Contains(l[0], "self.setup") && strings.Contains(l[1], "True") {
+			isSetup = true
+			break
+		}
+
+	}
+	return isSetup
+}
+func installPackageWithSetup(pkg string) {
+	c, err := os.ReadFile(fmt.Sprintf("%s/Barrells/%s.py", location, convertToReadableString(pkg)))
+	if err != nil {
+		color.RedString("ERROR: %s", err)
+		os.Exit(1)
+	}
+	cmd := exec.Command("python3")
+	closer, err := cmd.StdinPipe()
+	if err != nil {
+		panic(err)
+	}
+	defer closer.Close()
+	r, w, _ := os.Pipe()
+	cmd.Stdout = w
+	cmd.Stderr = w
+	cmd.Dir = fmt.Sprintf("%s/Barrells", location)
+	cmd.Start()
+	closer.Write(c)
+	closer.Write([]byte("\n"))
+	io.WriteString(closer, fmt.Sprintf("pkg=%s()\n", convertToReadableString(strings.ToLower(pkg))))
+	io.WriteString(closer, `print(f"url:{pkg.url}")`+"\n")
+	closer.Close()
+	w.Close()
+	cmd.Wait()
+	var buf bytes.Buffer
+	io.Copy(&buf, r)
+	content := strings.Split(buf.String(), "\n")
+	var i int
+	for index, line := range content {
+		s := strings.Replace(line, "url:", "", 1)
+		if IsUrl(s) {
+			i = index
+			break
+		}
+	}
+	url := content[i]
+	var sh bool
+	var interactive bool
+	if strings.Contains(url, "sh:") {
+		sh = true
+	}
+	if strings.Contains(url, "interactive:") {
+		interactive = true
+	}
+	url = strings.Replace(url, "sh:", "", 1)
+	url = strings.Replace(url, "interactive:", "", 1)
+	url = strings.Replace(url, "url:", "", 1)
+	os.Mkdir(fmt.Sprintf("%s/Installed/%s", location, convertToReadableString(pkg)), 0755)
+	if sh {
+		color.Green("Package %s is to be setup with sh and curl...", pkg)
+		cmd = exec.Command("curl", "-sSLo", fmt.Sprintf("/tmp/%s-setup.sh", pkg), url)
+		cmd.Dir = fmt.Sprintf("%s/Installed/%s", location, pkg)
+		err = cmd.Run()
+		if err != nil {
+			color.Red("ERROR - CURL: %s", err)
+			os.Exit(1)
+		}
+		cmd = exec.Command("sh", fmt.Sprintf("/tmp/%s-setup.sh", pkg))
+		cmd.Dir = fmt.Sprintf("%s/Installed/%s", location, pkg)
+		if interactive {
+			cmd.Stdout = os.Stdout
+			cmd.Stderr = os.Stderr
+			cmd.Stdin = os.Stdin
+		}
+		err = cmd.Run()
+		if err != nil {
+			color.Red("ERROR - SH: %s", err)
+			os.Exit(1)
+		}
+
+	}
+
 }
