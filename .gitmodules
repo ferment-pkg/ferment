@@ -1,0 +1,3 @@
+[submodule "Barrells"]
+	path = Barrells
+	url = https://github.com/ferment-pkg/Barrells
