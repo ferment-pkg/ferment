@@ -16,7 +16,7 @@ curl -SsL https://ferment.tk/install.sh | sh
 ```
   or
 ```sh
-git clone https://github.com/NotTimIsReal/Ferment.git /usr/local/Ferment/
+git clone --recurse-submodules -j8 https://github.com/NotTimIsReal/Ferment.git /usr/local/Ferment/
 cd /usr/local/Ferment/
 ./install.sh
 ```
