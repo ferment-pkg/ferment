@@ -1,6 +1,6 @@
 echo "This Is A Tool To Build The Project"
 read -p "Do you want to rebuild the project? (y/n)" -n 1 -r -s answer
-echo 
+echo
 if [ $answer != "y" ];then
      echo "Abort!"
      exit 1
@@ -20,9 +20,14 @@ if [ "$PYTHONEXE" = "" ]; then
 fi
 echo "Python3 Found"
 echo "Building For amd64..."
-GOARCH="amd64" go build -o bin/amd64/ferment-amd64
+GOARCH="amd64" go build -o bin/ferment-amd64
 echo "Build Completed"
 echo "Building For arm64..."
-GOARCH="arm64" go build -o bin/arm64/ferment-arm64
+GOARCH="arm64" go build -o bin/ferment-arm64
+echo "Build Completed"
+echo "Linking To Universal Binary"
+cd bin
+lipo --create --output ferment ferment-arm64 ferment-amd64
+rm -f ferment-arm64 ferment-amd64
 echo "Done"
 exit 0

@@ -22,7 +22,7 @@ fi
 echo "Python3 Is Installed"
 echo "Adding Project To PATH"
 mkdir -p /usr/local/bin
-ln -sf bin/$ARCH/ferment-$ARCH ferment
+ln -sf bin/ferment ferment
 zshrcOut=$(cat ~/.zshrc|grep /usr/local/ferment)
 if [ "$zshrcOut" = "" ]; then
   echo "Adding ferment to your zshrc"
@@ -30,7 +30,7 @@ if [ "$zshrcOut" = "" ]; then
 fi
 echo "Checking If Packages Have Been Cloned..."
 if [[ ! -d "Barrells" ]]
-then 
+then
   echo "Cloning Barrells"
   git clone https://github.com/ferment-pkg/Barrells Barrells
 fi
