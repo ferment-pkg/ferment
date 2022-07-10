@@ -94,6 +94,10 @@ var installCmd = &cobra.Command{
 				color.RedString("ERROR: %s", errors.New("downloading from url is not supported anymore"))
 				os.Exit(1)
 			}
+			if e, _ := exists(fmt.Sprintf("%s/Installed/%s", location, pkg)); e {
+				color.Red("Package %s already installed", pkg)
+				continue
+			}
 			if checkIfSetupPkg(pkg) {
 				installPackageWithSetup(pkg)
 				installPackages(pkg, verbose, false, "")
@@ -138,11 +142,6 @@ var installCmd = &cobra.Command{
 				installPackages(pkg, verbose, false, "")
 
 			} else {
-				_, err := os.ReadDir(fmt.Sprintf("%s/Installed/%s", location, pkg))
-				if err == nil {
-					fmt.Println(color.GreenString("Package Already Installed"))
-					continue
-				}
 				s := spinner.New(spinner.CharSets[2], 100*time.Millisecond) // Build our new spinner
 				s.Suffix = color.GreenString(" Downloading Source...")
 				s.Start()

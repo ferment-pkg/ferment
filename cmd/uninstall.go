@@ -35,6 +35,10 @@ var uninstallCmd = &cobra.Command{
 			os.Exit(1)
 		}
 		for _, pkg := range args {
+			if e, _ := exists(fmt.Sprintf("%s/Installed/%s", location, pkg)); !e {
+				color.Red("Package Not %s installed\n", pkg)
+				continue
+			}
 			if !IsUrl(pkg) {
 				checkIfPackageExists(pkg)
 			} else {
@@ -47,6 +51,7 @@ var uninstallCmd = &cobra.Command{
 					fmt.Println("Package Does Not Exist")
 					continue
 				}
+
 				os.RemoveAll(fmt.Sprintf("%s/Installed/%s", location, strings.ToLower(pkg)))
 				fmt.Println(color.GreenString("Package Uninstalled Successfully"))
 				continue
@@ -233,4 +238,14 @@ func removePkg(pkg string) {
 		fmt.Printf("%s: %s\n", color.RedString("ERROR"), err.Error())
 		os.Exit(1)
 	}
+}
+func exists(path string) (bool, error) {
+	_, err := os.Stat(path)
+	if err == nil {
+		return true, nil
+	}
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+	return false, err
 }
