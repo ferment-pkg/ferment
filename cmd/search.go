@@ -65,7 +65,7 @@ func SearchForPackages(pkg string) {
 		if name == "index" {
 			continue
 		}
-		if name == ".git" {
+		if name == ".git" || name == ".gitignore" || name == ".github" || name == "helpers" {
 			continue
 		}
 		if name == ".DS_STORE" {

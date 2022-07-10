@@ -1,4 +1,4 @@
-name: Build
+name: Build & Test
 
 on:
   push:
@@ -19,7 +19,13 @@ jobs:
         go-version: 1.18
 
     - name: Build
-      run: go build -v ./...
+      run: sh build.sh
 
-    - name: Test
-      run: go test -v ./...
+    - name: Install a package
+      run: ./ferment install bitgit
+    - name: List Packages
+      run: ./ferment list
+    - name: Show Current Barrells
+      run: ./ferment search
+    - name: Show Version
+      run: ./ferment -v

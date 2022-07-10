@@ -2,3 +2,4 @@ ferment
 Installed
 !bin/*
 dependencies.json
+.vscode
