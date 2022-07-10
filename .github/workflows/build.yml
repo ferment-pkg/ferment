@@ -18,8 +18,8 @@ jobs:
       with:
         go-version: 1.18
 
-    - name: Build
-      run: sh build.sh
+    - name: Build and link
+      run: sh build.sh && ln -s bin/ferment ferment
 
     - name: Install a package
       run: ./ferment install bitgit
