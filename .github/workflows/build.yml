@@ -12,6 +12,9 @@ jobs:
     runs-on: macos-latest
     steps:
     - uses: actions/checkout@v3
+      with:
+        submodules: recursive
+
 
     - name: Set up Go
       uses: actions/setup-go@v3
