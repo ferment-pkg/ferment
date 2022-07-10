@@ -27,7 +27,7 @@ GOARCH="arm64" go build -o bin/ferment-arm64
 echo "Build Completed"
 echo "Linking To Universal Binary"
 cd bin
-lipo --create --output ferment ferment-arm64 ferment-amd64
+lipo -create -output ferment ferment-arm64 ferment-amd64
 rm -f ferment-arm64 ferment-amd64
 echo "Done"
 exit 0

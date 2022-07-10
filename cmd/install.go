@@ -6,10 +6,12 @@ package cmd
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -25,6 +27,7 @@ import (
 	"github.com/briandowns/spinner"
 	"github.com/fatih/color"
 	"github.com/go-git/go-git/v5"
+	"github.com/gorilla/websocket"
 	"github.com/spf13/cobra"
 )
 
@@ -100,7 +103,21 @@ var installCmd = &cobra.Command{
 				s := spinner.New(spinner.CharSets[2], 100*time.Millisecond) // Build our new spinner
 				s.Suffix = color.GreenString(" Downloading Prebuild...")
 				s.Start()
-				DownloadFromTar(pkg, *getPrebuildURL(pkg), verbose)
+				f, err := checkIfPrebuildApi(pkg)
+				if err != nil {
+					color.Red("ERROR: %s", err)
+					os.Exit(1)
+				}
+				//if arch ==arm64 then print e else print f
+				if runtime.GOARCH == "amd64" && f.usingFermentTag.amd64 {
+
+					prebuildDownloadFromAPI(pkg, getFileFromLink(f.amd64))
+				} else if runtime.GOARCH == "arm64" && f.usingFermentTag.arm64 {
+					prebuildDownloadFromAPI(pkg, getFileFromLink(f.arm64))
+				} else {
+					DownloadFromTar(pkg, *getPrebuildURL(pkg), verbose)
+				}
+
 				s.Stop()
 				installPackages(pkg, verbose, false, "")
 				os.Exit(0)
@@ -790,7 +807,7 @@ func DepTrackerAdd(pkg string, isDep bool, installedBy string) {
 		if err != nil {
 			panic(err)
 		}
-		os.WriteFile("dependencies.json", []byte(c), 0644)
+		os.WriteFile("dependencies.json", []byte(c), 0777)
 	} else {
 		d := deps{Name: pkg, ReliedBy: "", InstalledByUser: true}
 		dependencies.Deps = append(dependencies.Deps, d)
@@ -798,7 +815,7 @@ func DepTrackerAdd(pkg string, isDep bool, installedBy string) {
 		if err != nil {
 			panic(err)
 		}
-		os.WriteFile("dependencies.json", []byte(c), 0644)
+		os.WriteFile("dependencies.json", []byte(c), 0777)
 	}
 
 }
@@ -863,7 +880,7 @@ func EditDepsTracker(pkg string, roots string) {
 	if err != nil {
 		panic(err)
 	}
-	os.WriteFile("dependencies.json", []byte(c), 0644)
+	os.WriteFile("dependencies.json", []byte(c), 0777)
 }
 func InstallPrebuilds(pkg string) {
 	os.Chdir(location)
@@ -1145,4 +1162,160 @@ func installPackageWithSetup(pkg string) {
 
 	}
 
+}
+func prebuildDownloadFromAPI(pkg string, file string) {
+	u := url.URL{Scheme: "wss", Host: "api.ferment.tk"}
+	f, err := os.OpenFile("/tmp/ferment.log", os.O_RDWR|os.O_CREATE|os.O_APPEND, 0777)
+	if err != nil {
+		color.Red("ERROR-PREBUILDGET: %s", err)
+		os.Exit(1)
+	}
+	logger := log.New(f, "DOWNLOAD", log.LstdFlags)
+	c, _, err := websocket.DefaultDialer.Dial(u.String(), nil)
+	if err != nil {
+		color.Red("ERROR-PREBUILDGET: %s", err)
+		logger.Fatal(err)
+		os.Exit(1)
+	}
+	receieved := make(chan bool)
+	dataRaw := make(chan []byte)
+	defer c.Close()
+	go func() {
+		for {
+			_, msg, err := c.ReadMessage()
+			if err != nil {
+				continue
+			}
+			message := string(msg)
+			logger.Printf("%s", message)
+			if strings.Contains(message, "data") {
+				receieved <- true
+				dataRaw <- msg
+				err = c.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
+				if err != nil {
+					color.Red("ERROR-PREBUILDGET: %s", err)
+					logger.Fatal(err)
+					os.Exit(1)
+				}
+				break
+			}
+		}
+	}()
+
+	type download struct {
+		Name string `json:"name"`
+		File string `json:"file"`
+	}
+	type downloadraw struct {
+		Data  download `json:"data"`
+		Event string   `json:"event"`
+	}
+	var data downloadraw
+	data.Data.Name = pkg
+	data.Data.File = file
+	data.Event = "download"
+	err = c.WriteJSON(data)
+	if err != nil {
+		color.Red("ERROR-PREBUILDGET: %s", err)
+		logger.Fatal(err)
+		os.Exit(1)
+	}
+	r := <-receieved
+	for !r {
+		r = <-receieved
+	}
+	message := <-dataRaw
+	type RecievedData struct {
+		Data string `json:"data"`
+	}
+	var dataRecieved RecievedData
+	json.Unmarshal(message, &dataRecieved)
+	c.WriteMessage(websocket.TextMessage, []byte("close"))
+	os.MkdirAll(fmt.Sprintf("%s/Installed/%s", location, pkg), 0777)
+	content, err := base64.StdEncoding.DecodeString(dataRecieved.Data)
+	if err != nil {
+		color.Red("ERROR-PREBUILDGET: %s", err)
+		logger.Fatal(err)
+		os.Exit(1)
+	}
+	os.WriteFile(fmt.Sprintf("%s/Installed/%s/%s.tar.gz", location, pkg, pkg), content, 0777)
+	tar, err := os.OpenFile(fmt.Sprintf("%s/Installed/%s/%s.tar.gz", location, pkg, pkg), os.O_RDONLY, 0777)
+	if err != nil {
+		color.Red("ERROR-PREBUILDGET: %s", err)
+		logger.Fatal(err)
+		os.Exit(1)
+	}
+	_, err = Untar(fmt.Sprintf("%s/Installed/", location), tar, pkg, true)
+	if err != nil {
+		color.Red("ERROR-PREBUILDGET: %s", err)
+		logger.Fatal(err)
+		os.Exit(1)
+	}
+
+}
+
+//Returns the links that wants to be downloaded or nil if is not prebuildapi
+//Works well with the prebuildDownloadFromAPI function
+func checkIfPrebuildApi(pkg string) (data *struct {
+	arm64           string
+	amd64           string
+	usingFermentTag struct {
+		amd64 bool
+		arm64 bool
+	}
+}, Error error) {
+	c, err := os.ReadFile(fmt.Sprintf("%s/Barrells/%s.py", location, convertToReadableString(pkg)))
+	if err != nil {
+		return nil, err
+	}
+	content := string(c)
+	lines := strings.Split(content, "\n")
+	var amd64Download string
+	var arm64Download string
+	for _, line := range lines {
+		if strings.Contains(line, "self.arm64") {
+			f := strings.Split(line, "=")
+			arm64Download = strings.Replace(f[1], `"`, "", -1)
+			arm64Download = strings.Replace(arm64Download, `'`, "", -1)
+
+		}
+		if strings.Contains(line, "self.amd64") {
+			f := strings.Split(line, "=")
+			amd64Download = strings.Replace(f[1], `"`, "", -1)
+			amd64Download = strings.Replace(amd64Download, `'`, "", -1)
+
+		}
+	}
+	if amd64Download != "" || arm64Download != "" {
+		d := struct {
+			amd64 bool
+			arm64 bool
+		}{}
+		for i, v := range []string{amd64Download, arm64Download} {
+			if strings.Contains(v, "ferment://") {
+				if i == 0 {
+					d.amd64 = true
+				} else {
+					d.arm64 = true
+				}
+			}
+		}
+		return &struct {
+			arm64           string
+			amd64           string
+			usingFermentTag struct {
+				amd64 bool
+				arm64 bool
+			}
+		}{arm64Download, amd64Download, d}, nil
+	}
+
+	return nil, errors.New("no prebuild api found")
+}
+
+//This function allows for you to extract the tar from the download link
+//Example Download Link: ferment://<pkg>@<file>
+func getFileFromLink(link string) string {
+	l := strings.Split(link, "@")
+	return l[1]
 }
