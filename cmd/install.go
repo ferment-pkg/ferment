@@ -6,12 +6,10 @@ package cmd
 
 import (
 	"bytes"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -27,7 +25,6 @@ import (
 	"github.com/briandowns/spinner"
 	"github.com/fatih/color"
 	"github.com/go-git/go-git/v5"
-	"github.com/gorilla/websocket"
 	"github.com/spf13/cobra"
 )
 
@@ -883,11 +880,6 @@ func EditDepsTracker(pkg string, roots string) {
 }
 func InstallPrebuilds(pkg string) {
 	os.Chdir(location)
-	c, err := os.ReadFile(fmt.Sprintf("Barrells/%s.py", convertToReadableString(strings.ToLower(pkg))))
-	if err != nil {
-		color.RedString("ERROR: %s", err)
-		os.Exit(1)
-	}
 	cmd := exec.Command("python3")
 	closer, err := cmd.StdinPipe()
 	if err != nil {
@@ -899,9 +891,9 @@ func InstallPrebuilds(pkg string) {
 	cmd.Stderr = w
 	cmd.Dir = fmt.Sprintf("%s/Barrells", location)
 	cmd.Start()
-	closer.Write(c)
-	closer.Write([]byte("\n"))
+	io.WriteString(closer, fmt.Sprintf("from %s import %s\n", pkg, pkg))
 	io.WriteString(closer, fmt.Sprintf("pkg=%s()\n", convertToReadableString(strings.ToLower(pkg))))
+	io.WriteString(closer, fmt.Sprintf(`pkg.prebuild.cwd="%s/Installed/%s"`+"\n", location, pkg))
 	io.WriteString(closer, "pkg.prebuild.install()\n")
 	closer.Close()
 	w.Close()
@@ -1163,93 +1155,8 @@ func installPackageWithSetup(pkg string) {
 
 }
 func prebuildDownloadFromAPI(pkg string, file string) {
-	u := url.URL{Scheme: "wss", Host: "api.ferment.tk"}
-	f, err := os.OpenFile("/tmp/ferment.log", os.O_RDWR|os.O_CREATE|os.O_APPEND, 0777)
-	if err != nil {
-		color.Red("ERROR-PREBUILDGET: %s", err)
-		os.Exit(1)
-	}
-	logger := log.New(f, "DOWNLOAD", log.LstdFlags)
-	c, _, err := websocket.DefaultDialer.Dial(u.String(), nil)
-	if err != nil {
-		color.Red("ERROR-PREBUILDGET: %s", err)
-		logger.Fatal(err)
-		os.Exit(1)
-	}
-	receieved := make(chan bool)
-	dataRaw := make(chan []byte)
-	defer c.Close()
-	go func() {
-		for {
-			_, msg, err := c.ReadMessage()
-			if err != nil {
-				continue
-			}
-			message := string(msg)
-			logger.Printf("%s", message)
-			if strings.Contains(message, "data") {
-				receieved <- true
-				dataRaw <- msg
-				err = c.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
-				if err != nil {
-					color.Red("ERROR-PREBUILDGET: %s", err)
-					logger.Fatal(err)
-					os.Exit(1)
-				}
-				break
-			}
-		}
-	}()
-
-	type download struct {
-		Name string `json:"name"`
-		File string `json:"file"`
-	}
-	type downloadraw struct {
-		Data  download `json:"data"`
-		Event string   `json:"event"`
-	}
-	var data downloadraw
-	data.Data.Name = pkg
-	data.Data.File = file
-	data.Event = "download"
-	err = c.WriteJSON(data)
-	if err != nil {
-		color.Red("ERROR-PREBUILDGET: %s", err)
-		logger.Fatal(err)
-		os.Exit(1)
-	}
-	r := <-receieved
-	for !r {
-		r = <-receieved
-	}
-	message := <-dataRaw
-	type RecievedData struct {
-		Data string `json:"data"`
-	}
-	var dataRecieved RecievedData
-	json.Unmarshal(message, &dataRecieved)
-	c.WriteMessage(websocket.TextMessage, []byte("close"))
-	os.MkdirAll(fmt.Sprintf("%s/Installed/%s", location, pkg), 0777)
-	content, err := base64.StdEncoding.DecodeString(dataRecieved.Data)
-	if err != nil {
-		color.Red("ERROR-PREBUILDGET: %s", err)
-		logger.Fatal(err)
-		os.Exit(1)
-	}
-	os.WriteFile(fmt.Sprintf("%s/Installed/%s/%s.tar.gz", location, pkg, pkg), content, 0777)
-	tar, err := os.OpenFile(fmt.Sprintf("%s/Installed/%s/%s.tar.gz", location, pkg, pkg), os.O_RDONLY, 0777)
-	if err != nil {
-		color.Red("ERROR-PREBUILDGET: %s", err)
-		logger.Fatal(err)
-		os.Exit(1)
-	}
-	_, err = Untar(fmt.Sprintf("%s/Installed/", location), tar, pkg, true)
-	if err != nil {
-		color.Red("ERROR-PREBUILDGET: %s", err)
-		logger.Fatal(err)
-		os.Exit(1)
-	}
+	url := fmt.Sprintf("https://api.ferment.tk/barrells/download/%s/%s", pkg, file)
+	DownloadFromTar(pkg, url, "false")
 
 }
 
