@@ -328,7 +328,7 @@ func installPackages(pkg string, verbose string, isDep bool, installedBy string)
 				installPackageWithSetup(dep)
 				installPackages(dep, verbose, true, pkg)
 			} else if checkifPrebuildSuitable(dep) {
-				DownloadFromTar(pkg, *getPrebuildURL(pkg), verbose)
+				DownloadFromTar(dep, getFileFromLink(*getPrebuildURL(dep)), verbose)
 			} else {
 				GetDownloadUrl(dep, verbose)
 				installPackages(dep, verbose, true, pkg)
