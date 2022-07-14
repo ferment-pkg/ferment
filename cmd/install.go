@@ -329,7 +329,7 @@ func installPackages(pkg string, verbose string, isDep bool, installedBy string)
 				installPackages(dep, verbose, true, pkg)
 			} else if checkifPrebuildSuitable(dep) {
 				if _, err := checkIfPrebuildApi(dep); err == nil {
-					DownloadFromTar(dep, getFileFromLink(*getPrebuildURL(dep)), verbose)
+					prebuildDownloadFromAPI(dep, getFileFromLink(*getPrebuildURL(dep)))
 				} else {
 					DownloadFromTar(dep, *getPrebuildURL(dep), verbose)
 				}
