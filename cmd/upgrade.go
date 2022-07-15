@@ -38,6 +38,8 @@ var upgradeCmd = &cobra.Command{
 			panic(err)
 		}
 		w.Pull(&git.PullOptions{RemoteName: "origin"})
+		fmt.Println("Resetting Repository...")
+		w.Reset(&git.ResetOptions{Mode: git.HardReset})
 		fmt.Println("Version Updated To Latest")
 		fmt.Println("Updating Packages...")
 		err = os.Chdir("Barrells")
