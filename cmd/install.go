@@ -549,7 +549,7 @@ func Untar(dst string, r io.Reader, pkg string, isGz bool) (string, error) {
 
 		// if it's a file create it
 		case tar.TypeReg:
-			f, err := os.OpenFile(target, os.O_CREATE|os.O_RDWR, os.FileMode(header.Mode))
+			f, err := os.OpenFile(target, os.O_CREATE|os.O_RDWR, 0744)
 			if err != nil {
 				return "", err
 			}
