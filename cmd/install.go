@@ -37,7 +37,7 @@ var installCmd = &cobra.Command{
 	Short: "Install Packages",
 	Long:  `Install Official Packages or Custom Packages From Git Repositories From GitLab Or Github`,
 	Run: func(cmd *cobra.Command, args []string) {
-		buildfromsource, err := cmd.Flags().GetBool("build-from-source")
+		buildfromsource, err := cmd.Flags().GetBool("bs")
 		if err != nil {
 			panic(err)
 		}
