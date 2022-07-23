@@ -37,6 +37,11 @@ var installCmd = &cobra.Command{
 	Short: "Install Packages",
 	Long:  `Install Official Packages or Custom Packages From Git Repositories From GitLab Or Github`,
 	Run: func(cmd *cobra.Command, args []string) {
+		buildfromsource, err := cmd.Flags().GetBool("build-from-source")
+		if err != nil {
+			panic(err)
+		}
+
 		if len(args) == 0 {
 			fmt.Println("Please provide a package to install, it can either be a custom package from github, gitlab, etc or a official package")
 			os.Exit(1)
@@ -97,10 +102,10 @@ var installCmd = &cobra.Command{
 			}
 			if checkIfSetupPkg(pkg) {
 				installPackageWithSetup(pkg)
-				installPackages(pkg, verbose, false, "")
+				installPackages(pkg, verbose, false, "", false)
 				os.Exit(0)
 			}
-			if checkifPrebuildSuitable(pkg) {
+			if !buildfromsource && checkifPrebuildSuitable(pkg) {
 				s := spinner.New(spinner.CharSets[2], 100*time.Millisecond) // Build our new spinner
 				s.Suffix = color.GreenString(" Downloading Prebuild...")
 				s.Start()
@@ -120,7 +125,7 @@ var installCmd = &cobra.Command{
 				}
 
 				s.Stop()
-				installPackages(pkg, verbose, false, "")
+				installPackages(pkg, verbose, false, "", false)
 				os.Exit(0)
 			}
 			if UsingGit(pkg, verbose) {
@@ -136,7 +141,7 @@ var installCmd = &cobra.Command{
 					os.Exit(1)
 				}
 				s.Stop()
-				installPackages(pkg, verbose, false, "")
+				installPackages(pkg, verbose, false, "", buildfromsource)
 
 			} else {
 				s := spinner.New(spinner.CharSets[2], 100*time.Millisecond) // Build our new spinner
@@ -145,9 +150,8 @@ var installCmd = &cobra.Command{
 				GetDownloadUrl(pkg, verbose)
 				DownloadInstructions(pkg)
 				s.Stop()
-				s = spinner.New(spinner.CharSets[36], 100*time.Millisecond) // Build our new spinner
-				s.Suffix = color.GreenString(" Installing Package...")
-				installPackages(pkg, verbose, false, "")
+
+				installPackages(pkg, verbose, false, "", buildfromsource)
 			}
 		}
 
@@ -157,6 +161,7 @@ var installCmd = &cobra.Command{
 func init() {
 	rootCmd.AddCommand(installCmd)
 	installCmd.PersistentFlags().StringP("verbose", "v", "", "Log All Output")
+	installCmd.PersistentFlags().Bool("bs", false, "Build From Source or use an available prebuild")
 	installCmd.Flag("verbose").NoOptDefVal = "true"
 
 	// Here you will define your flags and configuration settings.
@@ -235,7 +240,7 @@ func UsingGit(pkg string, verbose string) bool {
 	//fmt.Println(out)
 
 }
-func installPackages(pkg string, verbose string, isDep bool, installedBy string) {
+func installPackages(pkg string, verbose string, isDep bool, installedBy string, buildFromSource bool) {
 	if verbose == "true" {
 		fmt.Println("Looking For Dependencies")
 	}
@@ -322,11 +327,11 @@ func installPackages(pkg string, verbose string, isDep bool, installedBy string)
 				if err != nil {
 					panic(err)
 				}
-				installPackages(dep, verbose, true, pkg)
+				installPackages(dep, verbose, true, pkg, buildFromSource)
 				//TestInstallationScript(dep, verbose)
 			} else if checkIfSetupPkg(dep) {
 				installPackageWithSetup(dep)
-				installPackages(dep, verbose, true, pkg)
+				installPackages(dep, verbose, true, pkg, buildFromSource)
 			} else if checkifPrebuildSuitable(dep) {
 				if _, err := checkIfPrebuildApi(dep); err == nil {
 					prebuildDownloadFromAPI(dep, getFileFromLink(*getPrebuildURL(dep)))
@@ -335,7 +340,7 @@ func installPackages(pkg string, verbose string, isDep bool, installedBy string)
 				}
 			} else {
 				GetDownloadUrl(dep, verbose)
-				installPackages(dep, verbose, true, pkg)
+				installPackages(dep, verbose, true, pkg, buildFromSource)
 				// TestInstallationScript(dep, verbose)
 			}
 
@@ -346,18 +351,17 @@ func installPackages(pkg string, verbose string, isDep bool, installedBy string)
 	} else {
 		DepTrackerAdd(pkg, isDep, installedBy)
 	}
-	fmt.Printf("Installing %s", pkg)
-	s := spinner.New(spinner.CharSets[36], 100*time.Millisecond)
+	s := spinner.New(spinner.CharSets[36], 1000*time.Millisecond)
 	s.Suffix = " Installing " + pkg
+	s.FinalMSG = color.GreenString("Installed %s", pkg)
+
 	s.Start()
-	if checkifPrebuildSuitable(pkg) {
+	if checkifPrebuildSuitable(pkg) && !buildFromSource {
 		InstallPrebuilds(pkg)
 	} else {
 		RunInstallationScript(convertToReadableString(strings.ToLower(pkg)), verbose, convertToReadableString(strings.ToLower(pkg)))
 	}
-	time.Sleep(time.Millisecond * 500)
 	s.Stop()
-	color.Green("Installed %s", pkg)
 	s = spinner.New(spinner.CharSets[36], 100*time.Millisecond)
 	s.Suffix = " Installing Binaries For " + pkg
 	s.FinalMSG = color.GreenString("Installed Binary For " + pkg + "\n")
@@ -379,6 +383,9 @@ func installPackages(pkg string, verbose string, isDep bool, installedBy string)
 		s.FinalMSG = color.RedString("Installed " + pkg + " Failed Test\n")
 	}
 	s.Stop()
+	if caveats := getCaveats(pkg); caveats != nil {
+		fmt.Println(color.YellowString("Caveats:\n"), *caveats)
+	}
 
 }
 func GetGitURL(pkg string, verbose string) string {
@@ -604,7 +611,6 @@ func RunInstallationScript(pkg string, verbose string, cwd string) {
 	io.Copy(&buf, r)
 	//print nothing
 	buf.Reset()
-	fmt.Println(buf.String())
 
 }
 func TestInstallationScript(pkg string, verbose string) bool {
@@ -1228,4 +1234,23 @@ func checkIfPrebuildApi(pkg string) (data *struct {
 func getFileFromLink(link string) string {
 	l := strings.Split(link, "@")
 	return l[1]
+}
+func getCaveats(pkg string) *string {
+	if caveats, err := executeQuickPython(fmt.Sprintf("import %s;pkg=%s.%s();print(pkg.caveats)", convertToReadableString(pkg), convertToReadableString(pkg), convertToReadableString(pkg))); err != nil {
+		return nil
+	} else {
+		return &caveats
+	}
+}
+func executeQuickPython(code string) (string, error) {
+	cmd := exec.Command("python3", "-c", code)
+	cmd.Dir = fmt.Sprintf("%s/Barrells", location)
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	err := cmd.Run()
+	if err != nil {
+		return "", err
+	}
+	return out.String(), nil
+
 }
