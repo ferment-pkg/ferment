@@ -20,10 +20,10 @@ if [ "$PYTHONEXE" = "" ]; then
 fi
 echo "Python3 Found"
 echo "Building For amd64..."
-GOARCH="amd64" go build -o bin/ferment-amd64
+GOARCH="amd64" go build -o bin/ferment-amd64 -ldflags "-s -w"
 echo "Build Completed"
 echo "Building For arm64..."
-GOARCH="arm64" go build -o bin/ferment-arm64
+GOARCH="arm64" go build -o bin/ferment-arm64 -ldflags "-s -w"
 echo "Build Completed"
 echo "Linking To Universal Binary"
 cd bin
