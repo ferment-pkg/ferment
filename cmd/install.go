@@ -133,13 +133,13 @@ var installCmd = &cobra.Command{
 				//if arch ==arm64 then print e else print f
 				if runtime.GOARCH == "amd64" && f.usingFermentTag.amd64 {
 					s.Message("Downloading From API")
-					prebuildDownloadFromAPI(pkg, getFileFromLink(f.amd64))
+					prebuildDownloadFromAPI(pkg, getFileFromLink(f.amd64), s)
 				} else if runtime.GOARCH == "arm64" && f.usingFermentTag.arm64 {
 					s.Message("Downloading From API")
-					prebuildDownloadFromAPI(pkg, getFileFromLink(f.arm64))
+					prebuildDownloadFromAPI(pkg, getFileFromLink(f.arm64), s)
 				} else {
 					s.Message("Downloading From 3rd Party Link")
-					DownloadFromTar(pkg, *getPrebuildURL(pkg), verbose)
+					DownloadFromTar(pkg, *getPrebuildURL(pkg), verbose, s)
 				}
 
 				s.Stop()
@@ -197,7 +197,7 @@ var installCmd = &cobra.Command{
 				}
 				s.Message("Downloading")
 				s.Start()
-				GetDownloadUrl(pkg, verbose)
+				GetDownloadUrl(pkg, verbose, s)
 				DownloadInstructions(pkg)
 				s.Stop()
 
@@ -401,14 +401,14 @@ func installPackages(pkg string, verbose string, isDep bool, installedBy string,
 				installPackages(dep, verbose, true, pkg, buildFromSource)
 			} else if checkifPrebuildSuitable(dep) {
 				if _, err := checkIfPrebuildApi(dep); err == nil {
-					prebuildDownloadFromAPI(dep, getFileFromLink(*getPrebuildURL(dep)))
+					prebuildDownloadFromAPI(dep, getFileFromLink(*getPrebuildURL(dep)), s)
 				} else {
-					DownloadFromTar(dep, *getPrebuildURL(dep), verbose)
+					DownloadFromTar(dep, *getPrebuildURL(dep), verbose, s)
 				}
 				s.Stop()
 				installPackages(dep, verbose, true, pkg, buildFromSource)
 			} else {
-				GetDownloadUrl(dep, verbose)
+				GetDownloadUrl(dep, verbose, s)
 				s.Stop()
 				installPackages(dep, verbose, true, pkg, buildFromSource)
 				// TestInstallationScript(dep, verbose)
@@ -540,7 +540,7 @@ func GetGitURL(pkg string, verbose string) string {
 	return buf.String()
 
 }
-func DownloadFromTar(pkg string, url string, verbose string) string {
+func DownloadFromTar(pkg string, url string, verbose string, spinner *spinner.Spinner) string {
 	var isGZ bool
 	if strings.Contains(url, ".gz") {
 		isGZ = true
@@ -572,7 +572,7 @@ func DownloadFromTar(pkg string, url string, verbose string) string {
 	}
 	return path
 }
-func GetDownloadUrl(pkg string, verbose string) string {
+func GetDownloadUrl(pkg string, verbose string, s *spinner.Spinner) string {
 	if verbose == "true" {
 		fmt.Println("Looking For GitURl")
 	}
@@ -613,7 +613,7 @@ func GetDownloadUrl(pkg string, verbose string) string {
 	cmd.Wait()
 	var buf bytes.Buffer
 	io.Copy(&buf, r)
-	path := DownloadFromTar(convertToReadableString(strings.ToLower(pkg)), strings.Replace(buf.String(), "\n", "", -1), verbose)
+	path := DownloadFromTar(convertToReadableString(strings.ToLower(pkg)), strings.Replace(buf.String(), "\n", "", -1), verbose, s)
 	return path
 }
 func Untar(dst string, r io.Reader, pkg string, isGz bool) (string, error) {
@@ -1272,11 +1272,11 @@ func installPackageWithSetup(pkg string) {
 	}
 
 }
-func prebuildDownloadFromAPI(pkg string, file string) {
+func prebuildDownloadFromAPI(pkg string, file string, s *spinner.Spinner) {
 	version := os.Getenv("FERMENT_PKG_VERSION")
 
 	if version == "" {
-		res, err := http.Get(fmt.Sprintf("https://api.ferment.tk/barrells/info/%s", pkg))
+		res, err := http.Get(fmt.Sprintf("https://api.fermentpkg.tech/barrells/info/%s", pkg))
 		if err != nil {
 			color.Red("ERROR: %s", err)
 			os.Exit(1)
@@ -1294,8 +1294,8 @@ func prebuildDownloadFromAPI(pkg string, file string) {
 		version = body.LatestVersion
 	}
 	file = strings.Replace(file, ".tar", fmt.Sprintf("@%s.tar", version), 1)
-	url := fmt.Sprintf("https://api.ferment.tk/barrells/download/%s/%s", pkg, file)
-	DownloadFromTar(pkg, url, "false")
+	url := fmt.Sprintf("https://api.fermentpkg.tech/barrells/download/%s/%s", pkg, file)
+	DownloadFromTar(pkg, url, "false", s)
 
 }
 
@@ -1396,7 +1396,7 @@ func getFileSize(pkg string) int {
 				AllFiles      []string `json:"allFiles"`
 			}
 		}
-		res, err := http.Get(fmt.Sprintf("https://api.ferment.tk/barrells/info/%s", pkg))
+		res, err := http.Get(fmt.Sprintf("https://api.fermentpkg.tech/barrells/info/%s", pkg))
 		if err != nil {
 			panic(err)
 		}
@@ -1408,7 +1408,7 @@ func getFileSize(pkg string) int {
 
 	}
 
-	res, err := http.Get(fmt.Sprintf("https://api.ferment.tk/barrells/info/%s/%s", pkg, version))
+	res, err := http.Get(fmt.Sprintf("https://api.fermentpkg.tech/barrells/info/%s/%s", pkg, version))
 	if err != nil {
 		panic(err)
 	}
