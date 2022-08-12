@@ -1,6 +1,5 @@
 /*
 Copyright © 2022 NotTimIsReal
-
 */
 package cmd
 
@@ -12,13 +11,12 @@ import (
 	"io"
 	"os"
 	"os/exec"
-	"path/filepath"
+	"os/signal"
 	"runtime"
 	"strings"
+	"syscall"
 	"time"
 
-	"archive/tar"
-	"compress/gzip"
 	"net/http"
 	"net/url"
 
@@ -37,7 +35,12 @@ var installCmd = &cobra.Command{
 	Short: "Install Packages",
 	Long:  `Install Official Packages or Custom Packages From Git Repositories From GitLab Or Github`,
 	Run: func(cmd *cobra.Command, args []string) {
-		buildfromsource, err := cmd.Flags().GetBool("bs")
+		buildfromsource, err := cmd.Flags().GetBool("build-from-source")
+		if err != nil {
+			panic(err)
+		}
+		nocache, err := cmd.Flags().GetBool("no-cache")
+		os.Setenv("FERMENT_NO_CACHE", fmt.Sprintf("%v", nocache))
 		if err != nil {
 			panic(err)
 		}
@@ -195,10 +198,10 @@ var installCmd = &cobra.Command{
 					fmt.Println(color.RedString("Aborting"))
 					os.Exit(1)
 				}
-				s.Message("Downloading")
+				s.Message("Getting Download Info")
 				s.Start()
 				GetDownloadUrl(pkg, verbose, s)
-				DownloadInstructions(pkg)
+				// DownloadInstructions(pkg)
 				s.Stop()
 
 				installPackages(pkg, verbose, false, "", buildfromsource)
@@ -211,7 +214,8 @@ var installCmd = &cobra.Command{
 func init() {
 	rootCmd.AddCommand(installCmd)
 	installCmd.PersistentFlags().StringP("verbose", "v", "", "Log All Output")
-	installCmd.PersistentFlags().Bool("bs", false, "Build From Source or use an available prebuild")
+	installCmd.PersistentFlags().Bool("no-cache", false, "Not to use cached downloads")
+	installCmd.PersistentFlags().BoolP("build-from-source", "b", false, "Build From Source or use an available prebuild")
 	installCmd.Flag("verbose").NoOptDefVal = "true"
 
 	// Here you will define your flags and configuration settings.
@@ -239,7 +243,7 @@ func DownloadFromGithub(url string, path string, verbose string) error {
 		if strings.Contains(err.Error(), "exists") {
 			return fmt.Errorf("package already exists")
 		}
-		panic(err)
+		return err
 	}
 	if verbose == "true" {
 		fmt.Println("Downloaded from Github")
@@ -376,7 +380,7 @@ func installPackages(pkg string, verbose string, isDep bool, installedBy string,
 				CharSet:         spinner.CharSets[57],
 				Suffix:          color.GreenString(" %s", dep),
 				SuffixAutoColon: true,
-				Message:         "Downloading",
+				Message:         "Getting Download Info",
 				StopCharacter:   "✓",
 				StopColors:      []string{"fgGreen"},
 				StopFailMessage: "Failed",
@@ -541,36 +545,93 @@ func GetGitURL(pkg string, verbose string) string {
 
 }
 func DownloadFromTar(pkg string, url string, verbose string, spinner *spinner.Spinner) string {
-	var isGZ bool
-	if strings.Contains(url, ".gz") {
-		isGZ = true
-	} else {
-		isGZ = false
-	}
 	resp, err := http.Get(url)
 	if err != nil {
-		fmt.Println(color.RedString("Unable to download %s", pkg))
-		panic(err)
+		spinner.StopFailMessage(color.WhiteString(err.Error()))
+		spinner.StopFail()
+		os.Exit(1)
 	}
 	location, err := os.Executable()
 	location = location[:len(location)-len("/ferment")]
 	if err != nil {
-		fmt.Println(color.RedString("Unable to download %s", pkg))
-		panic(err)
+		spinner.StopFailMessage(color.WhiteString(err.Error()))
+		spinner.StopFail()
+		os.Exit(1)
 	}
+	fileName := strings.Split(url, "/")[len(strings.Split(url, "/"))-1]
 	defer resp.Body.Close()
 	if verbose == "true" {
 		fmt.Printf("Downloading Tar From %s\n", url)
 	}
+	//check if file exists in /tmp/ferment
+	if os.Getenv("FERMENT_NO_CACHE") == "true" {
+		os.Remove(fmt.Sprintf("/tmp/ferment/%s/%s", pkg, fileName))
+		spinner.Message("Removed Old Cache File")
+	}
+	if _, err := os.Stat(fmt.Sprintf("/tmp/ferment/%s/%s", pkg, fileName)); err == nil {
+		spinner.Message(fmt.Sprintf("Using Cached %s", pkg))
+
+	} else {
+		os.MkdirAll(fmt.Sprintf("/tmp/ferment/%s", pkg), 0777)
+		f, err := os.OpenFile(fmt.Sprintf("/tmp/ferment/%s/%s", pkg, fileName), os.O_CREATE|os.O_WRONLY, 0777)
+		if err != nil {
+			spinner.StopFailMessage("Failed Creating Tar")
+			spinner.StopFail()
+			os.Exit(1)
+		}
+		progress := make(chan float64)
+		go func() {
+			for {
+				p := getDownloadProgress(fmt.Sprintf("/tmp/ferment/%s/%s", pkg, fileName), resp.ContentLength)
+				progress <- p
+				if p == 100 {
+					break
+				}
+
+			}
+		}()
+		go func() {
+			_, err = io.Copy(f, resp.Body)
+			if err != nil {
+				spinner.StopFailMessage("Failed Writing To Tar")
+				spinner.StopFail()
+			}
+		}()
+		sigChan := make(chan os.Signal)
+		go func() {
+			signal.Notify(sigChan, syscall.SIGINT)
+			<-sigChan
+			spinner.Message("Download Cancelled Cleaning Up...")
+			os.Remove(fmt.Sprintf("/tmp/ferment/%s/%s", pkg, fileName))
+			spinner.StopFailMessage("Download Cancelled")
+			spinner.StopFail()
+			os.Exit(1)
+		}()
+
+		for {
+
+			p := <-progress
+			spinner.Message(fmt.Sprintf("Downloading %s %d%s/100%s", pkg, int(p), "%", "%"))
+			if p == 100 {
+				break
+			}
+			time.Sleep(500 * time.Millisecond)
+
+		}
+
+	}
 	if verbose == "true" {
 		fmt.Println("Extracting Tar")
 	}
-	path, err := Untar(fmt.Sprintf("%s/Installed/", location), resp.Body, convertToReadableString(strings.ToLower(pkg)), isGZ)
+	spinner.Message("Extracting Tar... (This Might Take a While)")
+	err = Untar(fmt.Sprintf("%s/Installed/", location), fmt.Sprintf("/tmp/ferment/%s/%s", pkg, fileName))
+
 	if err != nil {
-		fmt.Println(color.RedString("Unable to extract %s", pkg))
-		panic(err)
+		spinner.StopFailMessage("Tar -xvf: " + err.Error())
+		spinner.StopFail()
+		os.Exit(1)
 	}
-	return path
+	return fmt.Sprintf("%s/Installed/%s", location, pkg)
 }
 func GetDownloadUrl(pkg string, verbose string, s *spinner.Spinner) string {
 	if verbose == "true" {
@@ -616,68 +677,13 @@ func GetDownloadUrl(pkg string, verbose string, s *spinner.Spinner) string {
 	path := DownloadFromTar(convertToReadableString(strings.ToLower(pkg)), strings.Replace(buf.String(), "\n", "", -1), verbose, s)
 	return path
 }
-func Untar(dst string, r io.Reader, pkg string, isGz bool) (string, error) {
-	gzr, err := gzip.NewReader(r)
+func Untar(dst string, downloadedFile string) error {
+	err := exec.Command("tar", "xvf", downloadedFile, "--directory", dst).Run()
+
 	if err != nil {
-		return "", err
+		return err
 	}
-	defer gzr.Close()
-
-	tr := tar.NewReader(gzr)
-
-	for {
-		header, err := tr.Next()
-
-		switch {
-
-		// if no more files are found return
-		case err == io.EOF:
-			return "", nil
-
-		// return any other error
-		case err != nil:
-			return "", err
-
-		// if the header is nil, just skip it (not sure how this happens)
-		case header == nil:
-			continue
-		}
-
-		// the target location where the dir/file should be created
-		header.Name = fmt.Sprintf("%s/%s", pkg, strings.Join(strings.Split(header.Name, "/")[1:], "/"))
-		target := filepath.Join(dst, header.Name)
-
-		// the following switch could also be done using fi.Mode(), not sure if there
-		// a benefit of using one vs. the other.
-		// fi := header.FileInfo()
-
-		// check the file type
-		switch header.Typeflag {
-
-		// if its a dir and it doesn't exist create it
-		case tar.TypeDir:
-			if _, err := os.Stat(target); err != nil {
-				if err := os.MkdirAll(target, 0755); err != nil {
-					return "", err
-				}
-			}
-
-		// if it's a file create it
-		case tar.TypeReg:
-			f, err := os.OpenFile(target, os.O_CREATE|os.O_RDWR, 0744)
-			if err != nil {
-				return "", err
-			}
-			// copy over contents
-			if _, err := io.Copy(f, tr); err != nil {
-				return "", err
-			}
-
-			// manually close here after each file operation; defering would cause each file close
-			// to wait until all operations have completed.
-			f.Close()
-		}
-	}
+	return nil
 }
 func RunInstallationScript(pkg string, verbose string, cwd string) {
 	if verbose == "true" {
@@ -1299,8 +1305,8 @@ func prebuildDownloadFromAPI(pkg string, file string, s *spinner.Spinner) {
 
 }
 
-//Returns the links that wants to be downloaded or nil if is not prebuildapi
-//Works well with the prebuildDownloadFromAPI function
+// Returns the links that wants to be downloaded or nil if is not prebuildapi
+// Works well with the prebuildDownloadFromAPI function
 func checkIfPrebuildApi(pkg string) (data *struct {
 	arm64           string
 	amd64           string
@@ -1358,8 +1364,8 @@ func checkIfPrebuildApi(pkg string) (data *struct {
 	return nil, errors.New("no prebuild api found")
 }
 
-//This function allows for you to extract the tar from the download link
-//Example Download Link: ferment://<pkg>@<file>
+// This function allows for you to extract the tar from the download link
+// Example Download Link: ferment://<pkg>@<file>
 func getFileFromLink(link string) string {
 	l := strings.Split(link, "@")
 	return l[1]
@@ -1384,7 +1390,7 @@ func executeQuickPython(code string) (string, error) {
 
 }
 
-//work on later
+// work on later
 func getFileSize(pkg string) int {
 	version := os.Getenv("FERMENT_PKG_VERSION")
 
@@ -1429,15 +1435,15 @@ func getFileSize(pkg string) int {
 
 	return body.Body.Size
 }
-func getDownloadProgress(file string, total int64) int64 {
+func getDownloadProgress(file string, total int64) float64 {
 	fileO, err := os.Open(file)
 	if err != nil {
-		panic(err)
+		return 0
 	}
 	defer fileO.Close()
 	fi, err := fileO.Stat()
 	if err != nil {
-		panic(err)
+		return 0
 	}
-	return fi.Size() / total * 100
+	return float64(fi.Size()) / float64(total) * 100
 }
