@@ -1,6 +1,5 @@
 /*
 Copyright © 2022 NotTimIsReal
-
 */
 package cmd
 
@@ -65,7 +64,7 @@ func ListAllNormalPackages() {
 	}
 	fmt.Println(color.BlueString("===> ") + color.GreenString("Listing All Installed Packages"))
 	for _, pkg := range pkgsArray {
-		if pkg == ".DS_STORE" || pkg == ".git" {
+		if pkg == ".DS_Store" || pkg == ".git" {
 			continue
 		}
 		fmt.Println(pkg)

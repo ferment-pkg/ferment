@@ -678,6 +678,7 @@ func GetDownloadUrl(pkg string, verbose string, s *spinner.Spinner) string {
 	return path
 }
 func Untar(dst string, downloadedFile string, pkg string) error {
+	os.Mkdir(dst, 0777)
 	cmd := exec.Command("tar", "-xvf", downloadedFile, "--directory", dst)
 
 	var bytes bytes.Buffer
@@ -688,8 +689,12 @@ func Untar(dst string, downloadedFile string, pkg string) error {
 		return errors.New(bytes.String())
 	}
 	tar := strings.Split(downloadedFile, "/")[len(strings.Split(downloadedFile, "/"))-1]
-	tar = strings.Split(tar, ".")[0]
-	os.Rename(fmt.Sprintf("%s/%s", dst, tar), fmt.Sprintf("%s/%s", dst, pkg))
+	tar = strings.Replace(tar, ".tar.gz", "", -1)
+	tar = strings.Replace(tar, ".tar.xz", "", -1)
+	err = os.Rename(fmt.Sprintf("%s/%s", dst, tar), fmt.Sprintf("%s/%s", dst, pkg))
+	if err != nil {
+		return err
+	}
 	return nil
 }
 func RunInstallationScript(pkg string, verbose string, cwd string) {
