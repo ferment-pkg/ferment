@@ -624,7 +624,7 @@ func DownloadFromTar(pkg string, url string, verbose string, spinner *spinner.Sp
 		fmt.Println("Extracting Tar")
 	}
 	spinner.Message("Extracting Tar... (This Might Take a While)")
-	err = Untar(fmt.Sprintf("%s/Installed/", location), fmt.Sprintf("/tmp/ferment/%s/%s", pkg, fileName))
+	err = Untar(fmt.Sprintf("%s/Installed/", location), fmt.Sprintf("/tmp/ferment/%s/%s", pkg, strings.Split(fileName, "-")[0]))
 
 	if err != nil {
 		spinner.StopFailMessage("Tar -xvf: " + err.Error())
@@ -678,7 +678,9 @@ func GetDownloadUrl(pkg string, verbose string, s *spinner.Spinner) string {
 	return path
 }
 func Untar(dst string, downloadedFile string) error {
-	err := exec.Command("tar", "xvf", downloadedFile, "--directory", dst).Run()
+	cmd := exec.Command("tar", "-xvf", downloadedFile, "--directory", dst)
+	cmd.Stderr = os.Stderr
+	err := cmd.Run()
 
 	if err != nil {
 		return err
