@@ -25,7 +25,7 @@ jobs:
       run: sh build.sh && ln -s bin/ferment ferment
 
     - name: Install a package
-      run: ./ferment install bitgit
+      run: ./ferment install bitgit --build-from-source
     - name: List Packages
       run: ./ferment list
     - name: Show Current Barrells
