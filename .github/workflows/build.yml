@@ -21,8 +21,8 @@ jobs:
       with:
         go-version: 1.18
 
-    - name: Build and link
-      run: sh build.sh && ln -s bin/ferment ferment
+    - name: link
+      run: ln -sf $PWD/bin/ferment ferment
 
     - name: Install a package
       run: ./ferment install bitgit --build-from-source
