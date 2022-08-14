@@ -34,6 +34,20 @@ var installCmd = &cobra.Command{
 	Use:   "install <package>",
 	Short: "Install Packages",
 	Long:  `Install Official Packages or Custom Packages From Git Repositories From GitLab Or Github`,
+	ValidArgsFunction: func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+		if len(args) != 0 {
+			return nil, cobra.ShellCompDirectiveNoFileComp
+		}
+		command := exec.Command("ferment", "search")
+		var out bytes.Buffer
+		command.Stdout = &out
+		command.Run()
+		pkgs := out.String()
+		pkgArr := strings.Split(pkgs, "\n")
+		//remove first element
+		pkgArr = pkgArr[1:]
+		return pkgArr, cobra.ShellCompDirectiveNoFileComp
+	},
 	Run: func(cmd *cobra.Command, args []string) {
 		buildfromsource, err := cmd.Flags().GetBool("build-from-source")
 		if err != nil {
@@ -582,7 +596,7 @@ func DownloadFromTar(pkg string, url string, verbose string, spinner *spinner.Sp
 		progress := make(chan float64)
 		go func() {
 			for {
-				p := getDownloadProgress(fmt.Sprintf("/tmp/ferment/%s/%s", pkg, fileName), resp.ContentLength)
+				p := getDownloadProgress(fmt.Sprintf("/tmp/ferment/%s/%s", pkg, fileName), resp.ContentLength, resp)
 				progress <- p
 				if p == 100 {
 					break
@@ -611,7 +625,11 @@ func DownloadFromTar(pkg string, url string, verbose string, spinner *spinner.Sp
 		for {
 
 			p := <-progress
-			spinner.Message(fmt.Sprintf("Downloading %s %d%s/100%s", pkg, int(p), "%", "%"))
+			if p == -1 {
+				spinner.Message(fmt.Sprintf("Downloading %s Of Unknown Size", pkg))
+			} else {
+				spinner.Message(fmt.Sprintf("Downloading %s %d%s/100%s", pkg, int(p), "%", "%"))
+			}
 			if p == 100 {
 				break
 			}
@@ -679,22 +697,49 @@ func GetDownloadUrl(pkg string, verbose string, s *spinner.Spinner) string {
 }
 func Untar(dst string, downloadedFile string, pkg string) error {
 	os.Mkdir(dst, 0777)
+	//list dst
+	oldentries, err := os.ReadDir(dst)
+	if err != nil {
+		return err
+	}
 	cmd := exec.Command("tar", "-xvf", downloadedFile, "--directory", dst)
 
 	var bytes bytes.Buffer
 	cmd.Stderr = &bytes
-	err := cmd.Run()
+	err = cmd.Run()
 
 	if err != nil {
 		return errors.New(bytes.String())
 	}
-	tar := strings.Split(downloadedFile, "/")[len(strings.Split(downloadedFile, "/"))-1]
-	tar = strings.Replace(tar, ".tar.gz", "", -1)
-	tar = strings.Replace(tar, ".tar.xz", "", -1)
-	err = os.Rename(fmt.Sprintf("%s/%s", dst, tar), fmt.Sprintf("%s/%s", dst, pkg))
+	newentries, err := os.ReadDir(dst)
 	if err != nil {
 		return err
 	}
+	//find the difference between the two
+	if len(oldentries) == 0 && len(newentries) > 0 {
+		os.Rename(fmt.Sprintf("%s/%s", dst, newentries[0].Name()), fmt.Sprintf("%s/%s", dst, pkg))
+	} else {
+		for _, oldentry := range oldentries {
+			found := false
+			var name string
+			for _, newentry := range newentries {
+				found = false
+				name = newentry.Name()
+				if oldentry.Name() == newentry.Name() {
+					found = true
+				}
+			}
+			if !found {
+				err = os.Rename(fmt.Sprintf("%s/%s", dst, name), fmt.Sprintf("%s/%s", dst, pkg))
+
+				if err != nil {
+					return err
+				}
+				break
+			}
+		}
+	}
+
 	return nil
 }
 func RunInstallationScript(pkg string, verbose string, cwd string) {
@@ -821,12 +866,10 @@ func InstallBinary(pkg string, verbose string) string {
 		return "No Binary"
 	} else {
 		binary := strings.Replace(buf.String(), "'", "", -1)
-		binary = strings.Replace(buf.String(), `"`, "", -1)
+		binary = strings.Replace(binary, `"`, "", -1)
 		binary = strings.Replace(binary, "\n", "", -1)
-		err := os.Symlink(fmt.Sprintf("%s/Installed/%s/%s", location, pkg, binary), fmt.Sprintf("/usr/local/bin/%s", binary))
-		if err != nil {
-			fmt.Println(err)
-		}
+		os.Remove(fmt.Sprintf("/usr/local/bin/%s", binary))
+		os.Symlink(fmt.Sprintf("%s/Installed/%s/%s", location, pkg, binary), fmt.Sprintf("/usr/local/bin/%s", binary))
 		return "Binary Installed"
 	}
 }
@@ -1447,7 +1490,7 @@ func getFileSize(pkg string) int {
 
 	return body.Body.Size
 }
-func getDownloadProgress(file string, total int64) float64 {
+func getDownloadProgress(file string, total int64, r *http.Response) float64 {
 	fileO, err := os.Open(file)
 	if err != nil {
 		return 0
@@ -1456,6 +1499,15 @@ func getDownloadProgress(file string, total int64) float64 {
 	fi, err := fileO.Stat()
 	if err != nil {
 		return 0
+	}
+	//check if total is -1
+	if total == -1 {
+		select {
+		case <-r.Request.Context().Done():
+			return 100
+		default:
+			return -1
+		}
 	}
 	return float64(fi.Size()) / float64(total) * 100
 }

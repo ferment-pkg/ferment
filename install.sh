@@ -27,6 +27,7 @@ zshrcOut=$(cat ~/.zshrc|grep /usr/local/ferment)
 if [ "$zshrcOut" = "" ]; then
   echo "Adding ferment to your zshrc"
   echo export PATH='$PATH':$PWD >> $HOME/.zshrc
+  echo export PATH='$PATH:/usr/local/sbin' >> $HOME/.zshrc
 fi
 echo "Checking If Packages Have Been Cloned..."
 if [[ ! -d "Barrells" ]]

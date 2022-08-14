@@ -1,6 +1,5 @@
 /*
 Copyright © 2022 NotTimIsReal
-
 */
 package cmd
 
@@ -24,6 +23,20 @@ var uninstallCmd = &cobra.Command{
 	Use:   "uninstall <package>",
 	Short: "Uninstall A Package",
 	Long:  `Uninstall A Package That Has Been Installed By Ferment`,
+	ValidArgsFunction: func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+		if len(args) != 0 {
+			return nil, cobra.ShellCompDirectiveNoFileComp
+		}
+		command := exec.Command("ferment", "list")
+		var out bytes.Buffer
+		command.Stdout = &out
+		command.Run()
+		pkgs := out.String()
+		pkgArr := strings.Split(pkgs, "\n")
+		//remove first element
+		pkgArr = pkgArr[1:]
+		return pkgArr, cobra.ShellCompDirectiveNoFileComp
+	},
 	Run: func(cmd *cobra.Command, args []string) {
 		location, err := os.Executable()
 		if err != nil {
