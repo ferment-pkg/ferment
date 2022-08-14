@@ -25,7 +25,7 @@ jobs:
       run: ln -sf $PWD/bin/ferment ferment
 
     - name: Install a package
-      run: ./ferment install bitgit --build-from-source
+      run: ./ferment install bitgit
     - name: List Packages
       run: ./ferment list
     - name: Show Current Barrells
