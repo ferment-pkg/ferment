@@ -44,8 +44,8 @@ var installCmd = &cobra.Command{
 		command.Run()
 		pkgs := out.String()
 		pkgArr := strings.Split(pkgs, "\n")
-		//remove first element
 		pkgArr = pkgArr[1:]
+
 		return pkgArr, cobra.ShellCompDirectiveNoFileComp
 	},
 	Run: func(cmd *cobra.Command, args []string) {
@@ -719,22 +719,17 @@ func Untar(dst string, downloadedFile string, pkg string) error {
 	if len(oldentries) == 0 && len(newentries) > 0 {
 		os.Rename(fmt.Sprintf("%s/%s", dst, newentries[0].Name()), fmt.Sprintf("%s/%s", dst, pkg))
 	} else {
-		for _, oldentry := range oldentries {
+		//Using the old entries, find the first one that is not in the old entries
+		for _, entry := range newentries {
 			found := false
-			var name string
-			for _, newentry := range newentries {
-				found = false
-				name = newentry.Name()
-				if oldentry.Name() == newentry.Name() {
+			for _, oldentry := range oldentries {
+				if entry.Name() == oldentry.Name() {
 					found = true
+					break
 				}
 			}
 			if !found {
-				err = os.Rename(fmt.Sprintf("%s/%s", dst, name), fmt.Sprintf("%s/%s", dst, pkg))
-
-				if err != nil {
-					return err
-				}
+				os.Rename(fmt.Sprintf("%s/%s", dst, entry.Name()), fmt.Sprintf("%s/%s", dst, pkg))
 				break
 			}
 		}
