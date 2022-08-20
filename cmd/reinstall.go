@@ -1,6 +1,5 @@
 /*
 Copyright © 2022 NAME HERE <EMAIL ADDRESS>
-
 */
 package cmd
 
@@ -38,11 +37,12 @@ var reinstallCmd = &cobra.Command{
 				}
 			}
 			pkg = convertToReadableString(strings.ToLower(pkg))
-			cmd := exec.Command("ferment", "uninstall", pkg)
+			ferment, _ := os.Executable()
+			cmd := exec.Command(ferment, "uninstall", pkg)
 			cmd.Stdout = os.Stdout
 			cmd.Stderr = os.Stderr
 			cmd.Run()
-			cmd = exec.Command("ferment", "install", pkg)
+			cmd = exec.Command(ferment, "install", pkg)
 			cmd.Stdout = os.Stdout
 			cmd.Stderr = os.Stderr
 			cmd.Run()
