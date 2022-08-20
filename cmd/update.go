@@ -90,9 +90,9 @@ var updateCmd = &cobra.Command{
 			spinner.Message(fmt.Sprintf("Retrieveing Current Version Of %s", pkg))
 			currentVersion, err := getCurrentVersion(pkg)
 			if err != nil {
-				spinner.StopFailMessage(fmt.Sprintf("%s: %s", pkg, err))
-				spinner.StopFail()
-				os.Exit(1)
+				spinner.Message("Error Retrieving Current Version")
+				summaryArr = append(summaryArr, summary{pkg: pkg, updated: false, oldVersion: version, newVersion: version})
+				continue
 			}
 			spinner.Message(fmt.Sprintf("Current Version Of %s: %s", pkg, currentVersion))
 			if version == currentVersion {
