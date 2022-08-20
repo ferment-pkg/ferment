@@ -61,7 +61,7 @@ var uninstallCmd = &cobra.Command{
 				continue
 			}
 			checkIfPackageExists(pkg)
-			GetUninstallInstructions(pkg)
+			GetUninstallInstructions(pkg, force)
 		}
 
 	},
@@ -80,7 +80,7 @@ func init() {
 	// is called directly, e.g.:
 	//uninstallCmd.Flags().Bool("y", false, "Help message for toggle")
 }
-func GetUninstallInstructions(pkg string) {
+func GetUninstallInstructions(pkg string, force bool) {
 	pkg = convertToReadableString(strings.ToLower(pkg))
 	location, err := os.Executable()
 	if err != nil {
@@ -116,7 +116,7 @@ func GetUninstallInstructions(pkg string) {
 	cmd.Wait()
 	var buf bytes.Buffer
 	io.Copy(&buf, r)
-	if strings.Contains(buf.String(), "True") {
+	if strings.Contains(buf.String(), "True") || force {
 		os.RemoveAll(fmt.Sprintf("%s/Installed/%s", location, pkg))
 		fmt.Println(color.GreenString("Package %s Uninstalled Successfully", pkg))
 		removePkg(pkg)
@@ -124,7 +124,7 @@ func GetUninstallInstructions(pkg string) {
 		dep := <-c
 		for _, d := range dep.Deps {
 			removeDep(d.Name)
-			GetUninstallInstructions(d.Name)
+			GetUninstallInstructions(d.Name, force)
 
 		}
 
