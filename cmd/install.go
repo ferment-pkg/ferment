@@ -33,7 +33,7 @@ var location = l[:len(l)-len("/ferment")]
 var installCmd = &cobra.Command{
 	Use:   "install <package>",
 	Short: "Install Packages",
-	Long:  `Install Official Packages or Custom Packages From Git Repositories From GitLab Or Github`,
+	Long:  `Install Official Barrells `,
 	ValidArgsFunction: func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		if len(args) != 0 {
 			return nil, cobra.ShellCompDirectiveNoFileComp
@@ -462,6 +462,8 @@ func installPackages(pkg string, verbose string, isDep bool, installedBy string,
 	} else {
 		RunInstallationScript(convertToReadableString(strings.ToLower(pkg)), verbose, convertToReadableString(strings.ToLower(pkg)))
 	}
+	version, _ := getVersion(pkg)
+	writeVersionFile(pkg, version)
 	s.Stop()
 	s, err = spinner.New(spinner.Config{
 		Frequency:         100 * time.Millisecond,
@@ -1332,27 +1334,34 @@ func prebuildDownloadFromAPI(pkg string, file string, s *spinner.Spinner) {
 	version := os.Getenv("FERMENT_PKG_VERSION")
 
 	if version == "" {
-		res, err := http.Get(fmt.Sprintf("https://api.fermentpkg.tech/barrells/info/%s", pkg))
-		if err != nil {
-			color.Red("ERROR: %s", err)
-			os.Exit(1)
-		}
-		defer res.Body.Close()
-		var body struct {
-			LatestVersion string   `json:"latestVersion"`
-			AllFiles      []string `json:"allFiles"`
-		}
-		err = json.NewDecoder(res.Body).Decode(&body)
-		if err != nil {
-			color.Red("ERROR: %s", err)
-			os.Exit(1)
-		}
+		body := getLatestVersionOfPrebuild(pkg)
 		version = body.LatestVersion
 	}
 	file = strings.Replace(file, ".tar", fmt.Sprintf("@%s.tar", version), 1)
 	url := fmt.Sprintf("https://api.fermentpkg.tech/barrells/download/%s/%s", pkg, file)
 	DownloadFromTar(pkg, url, "false", s)
 
+}
+
+type body struct {
+	LatestVersion string   `json:"latestVersion"`
+	AllFiles      []string `json:"allFiles"`
+}
+
+func getLatestVersionOfPrebuild(pkg string) body {
+	res, err := http.Get(fmt.Sprintf("https://api.fermentpkg.tech/barrells/info/%s", pkg))
+	if err != nil {
+		color.Red("ERROR: %s", err)
+		os.Exit(1)
+	}
+	defer res.Body.Close()
+	var body body
+	err = json.NewDecoder(res.Body).Decode(&body)
+	if err != nil {
+		color.Red("ERROR: %s", err)
+		os.Exit(1)
+	}
+	return body
 }
 
 // Returns the links that wants to be downloaded or nil if is not prebuildapi
@@ -1432,9 +1441,10 @@ func executeQuickPython(code string) (string, error) {
 	cmd.Dir = fmt.Sprintf("%s/Barrells", location)
 	var out bytes.Buffer
 	cmd.Stdout = &out
+	cmd.Stderr = &out
 	err := cmd.Run()
 	if err != nil {
-		return "", err
+		return "", errors.New(out.String())
 	}
 	return out.String(), nil
 
@@ -1505,4 +1515,15 @@ func getDownloadProgress(file string, total int64, r *http.Response) float64 {
 		}
 	}
 	return float64(fi.Size()) / float64(total) * 100
+}
+func writeVersionFile(pkg string, version string) {
+	f, err := os.OpenFile(fmt.Sprintf("%s/Installed/%s/VERSION.meta", location, convertToReadableString(pkg)), os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0666)
+	if err != nil {
+		panic(err)
+	}
+	defer f.Close()
+	_, err = f.WriteString(version)
+	if err != nil {
+		panic(err)
+	}
 }

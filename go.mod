@@ -3,7 +3,6 @@ module github.com/NotTimIsReal/ferment
 go 1.18
 
 require (
-	github.com/briandowns/spinner v1.18.1
 	github.com/dchest/validator v0.0.0-20191217151620-8e45250f2371
 	github.com/fatih/color v1.13.0
 	github.com/go-git/go-git/v5 v5.4.2

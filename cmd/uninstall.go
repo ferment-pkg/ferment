@@ -38,6 +38,10 @@ var uninstallCmd = &cobra.Command{
 		return pkgArr, cobra.ShellCompDirectiveNoFileComp
 	},
 	Run: func(cmd *cobra.Command, args []string) {
+		force, err := cmd.Flags().GetBool("force")
+		if err != nil {
+			panic(err)
+		}
 		location, err := os.Executable()
 		if err != nil {
 			panic(err)
@@ -52,23 +56,11 @@ var uninstallCmd = &cobra.Command{
 				color.Red("Package Not %s installed\n", pkg)
 				continue
 			}
-			if !IsUrl(pkg) {
-				checkIfPackageExists(pkg)
-			} else {
-				if strings.Contains(pkg, "http://") {
-					fmt.Println("Ferment Does Not Support http packages")
-					continue
-				}
-				pkg = strings.Split(pkg, "https://")[1]
-				if !checkIfPackageExists(strings.ToLower(pkg)) {
-					fmt.Println("Package Does Not Exist")
-					continue
-				}
-
-				os.RemoveAll(fmt.Sprintf("%s/Installed/%s", location, strings.ToLower(pkg)))
-				fmt.Println(color.GreenString("Package Uninstalled Successfully"))
+			if checkIfDepIsRequired(pkg) != "" && !force {
+				color.Red("Package %s is required by %s (use -f or --force to force uninstall bitgit or own the barrell with ferment own)\n", pkg, checkIfDepIsRequired(pkg))
 				continue
 			}
+			checkIfPackageExists(pkg)
 			GetUninstallInstructions(pkg)
 		}
 
@@ -77,7 +69,7 @@ var uninstallCmd = &cobra.Command{
 
 func init() {
 	rootCmd.AddCommand(uninstallCmd)
-
+	uninstallCmd.Flags().BoolP("force", "f", false, "Force Uninstall")
 	// Here you will define your flags and configuration settings.
 
 	// Cobra supports Persistent Flags which will work for this command
@@ -261,4 +253,26 @@ func exists(path string) (bool, error) {
 		return false, nil
 	}
 	return false, err
+}
+func checkIfDepIsRequired(pkg string) string {
+	pkg = convertToReadableString(strings.ToLower(pkg))
+	location, err := os.Executable()
+	if err != nil {
+		panic(err)
+	}
+	location = location[:len(location)-len("/ferment")]
+	os.Chdir(location)
+	content, err := os.ReadFile("dependencies.json")
+	if err != nil {
+		fmt.Printf("%s: %s\n", color.RedString("ERROR"), err.Error())
+		os.Exit(1)
+	}
+	var dependencies Dep
+	json.Unmarshal(content, &dependencies)
+	for _, dep := range dependencies.Deps {
+		if dep.Name == pkg && !dep.InstalledByUser {
+			return dep.ReliedBy
+		}
+	}
+	return ""
 }
