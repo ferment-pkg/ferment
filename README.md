@@ -12,7 +12,7 @@
 ## Install:
   
 ```sh
-curl -SsL https://ferment.tk/install.sh | sh
+curl -SsL https://fermentpkg.tech/install.sh | sh
 ```
   or
 ```sh
