@@ -57,7 +57,7 @@ var uninstallCmd = &cobra.Command{
 				continue
 			}
 			if checkIfDepIsRequired(pkg) != "" && !force {
-				color.Red("Package %s is required by %s (use -f or --force to force uninstall bitgit or own the barrell with ferment own)\n", pkg, checkIfDepIsRequired(pkg))
+				color.Red("Package %s is required by %s (use -f or --force to force uninstall %s or own the barrell with ferment own)\n", pkg, checkIfDepIsRequired(pkg), pkg)
 				continue
 			}
 			checkIfPackageExists(pkg)

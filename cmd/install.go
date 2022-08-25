@@ -23,6 +23,7 @@ import (
 	"github.com/fatih/color"
 	"github.com/go-git/go-git/v5"
 	"github.com/spf13/cobra"
+	"github.com/theckman/yacspin"
 	spinner "github.com/theckman/yacspin"
 )
 
@@ -122,7 +123,21 @@ var installCmd = &cobra.Command{
 				continue
 			}
 			if checkIfSetupPkg(pkg) {
-				installPackageWithSetup(pkg)
+				s, err := spinner.New(spinner.Config{
+					Frequency:         100 * time.Millisecond,
+					CharSet:           spinner.CharSets[57],
+					Suffix:            color.GreenString(" Setup"),
+					SuffixAutoColon:   true,
+					Message:           "Download",
+					StopCharacter:     "✓",
+					StopColors:        []string{"fgGreen"},
+					StopFailCharacter: "✗",
+					StopFailColors:    []string{"fgRed"},
+				}) // Build our new spinner
+				if err != nil {
+					panic(err)
+				}
+				installPackageWithSetup(pkg, s)
 				installPackages(pkg, verbose, false, "", false)
 				os.Exit(0)
 			}
@@ -358,8 +373,14 @@ func installPackages(pkg string, verbose string, isDep bool, installedBy string,
 	//run a function for each dependecy in dependenciesArr
 	if !strings.Contains(dependencies, "Traceback(mostrecentcalllast)") && len(dependencies) != 0 {
 		for _, dep := range dependenciesArr {
+			//check if you can split dep by :
+			var command = dep
+			if strings.Contains(dep, ":") {
+				dep = strings.Split(dep, ":")[0]
+				command = strings.Split(dep, ":")[1]
+			}
 			fmt.Printf(color.YellowString("Package %s depends on %s\n"), pkg, dep)
-			cmd := exec.Command("which", strings.ReplaceAll(dep, "'", ""))
+			cmd := exec.Command("which", strings.ReplaceAll(command, "'", ""))
 			r, w, err := os.Pipe()
 			if err != nil {
 				panic(err)
@@ -415,8 +436,10 @@ func installPackages(pkg string, verbose string, isDep bool, installedBy string,
 				installPackages(dep, verbose, true, pkg, buildFromSource)
 				//TestInstallationScript(dep, verbose)
 			} else if checkIfSetupPkg(dep) {
-				installPackageWithSetup(dep)
+				installPackageWithSetup(dep, s)
+
 				installPackages(dep, verbose, true, pkg, buildFromSource)
+
 			} else if checkifPrebuildSuitable(dep) {
 				if _, err := checkIfPrebuildApi(dep); err == nil {
 					prebuildDownloadFromAPI(dep, getFileFromLink(*getPrebuildURL(dep)), s)
@@ -567,6 +590,8 @@ func DownloadFromTar(pkg string, url string, verbose string, spinner *spinner.Sp
 		spinner.StopFail()
 		os.Exit(1)
 	}
+	//dont keep-alive
+	resp.Header.Set("Connection", "close")
 	location, err := os.Executable()
 	location = location[:len(location)-len("/ferment")]
 	if err != nil {
@@ -1257,10 +1282,10 @@ func checkIfSetupPkg(pkg string) bool {
 	}
 	return isSetup
 }
-func installPackageWithSetup(pkg string) {
+func installPackageWithSetup(pkg string, spinner *yacspin.Spinner) {
 	c, err := os.ReadFile(fmt.Sprintf("%s/Barrells/%s.py", location, convertToReadableString(pkg)))
 	if err != nil {
-		color.RedString("ERROR: %s", err)
+		spinner.Message(color.RedString("ERROR: %s", err))
 		os.Exit(1)
 	}
 	cmd := exec.Command("python3")
@@ -1306,7 +1331,8 @@ func installPackageWithSetup(pkg string) {
 	url = strings.Replace(url, "url:", "", 1)
 	os.Mkdir(fmt.Sprintf("%s/Installed/%s", location, convertToReadableString(pkg)), 0755)
 	if sh {
-		color.Green("Package %s is to be setup with sh and curl...", pkg)
+		spinner.Message(color.GreenString("Package %s is to be setup with sh and curl...", pkg))
+
 		cmd = exec.Command("curl", "-sSLo", fmt.Sprintf("/tmp/%s-setup.sh", pkg), url)
 		cmd.Dir = fmt.Sprintf("%s/Installed/%s", location, pkg)
 		err = cmd.Run()
@@ -1317,17 +1343,19 @@ func installPackageWithSetup(pkg string) {
 		cmd = exec.Command("sh", fmt.Sprintf("/tmp/%s-setup.sh", pkg))
 		cmd.Dir = fmt.Sprintf("%s/Installed/%s", location, pkg)
 		if interactive {
+			spinner.Pause()
 			cmd.Stdout = os.Stdout
 			cmd.Stderr = os.Stderr
 			cmd.Stdin = os.Stdin
 		}
 		err = cmd.Run()
 		if err != nil {
-			color.Red("ERROR - SH: %s", err)
+			spinner.Message(color.RedString("ERROR - SH: %s", err))
 			os.Exit(1)
 		}
 
 	}
+	spinner.Stop()
 
 }
 func prebuildDownloadFromAPI(pkg string, file string, s *spinner.Spinner) {
@@ -1509,6 +1537,7 @@ func getDownloadProgress(file string, total int64, r *http.Response) float64 {
 	if total == -1 {
 		select {
 		case <-r.Request.Context().Done():
+			fmt.Println("R closed")
 			return 100
 		default:
 			return -1
