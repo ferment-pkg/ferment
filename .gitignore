@@ -3,3 +3,4 @@ Installed
 !bin/*
 dependencies.json
 .vscode
+.devcontainer
