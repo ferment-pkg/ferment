@@ -66,12 +66,8 @@ Create a new file in the Barrells folder and name it the same as the package you
 ```
 
 # Trouble-Shooting
-## Automake Doesn't Install
-**Fix:** Uninstall the package and then close your terminal and clear your cache at `/tmp/ and ~/Library/Caches/`, open a new terminal window and run `ferment install <package>`
-## Pkg-Config Doesn't Build On M1
-**Fix:** No current fix is available except running the build command manually. On Intel, a pre-compiled will be used.
-
-**PS:** It would be incredibly helpful if someone after manually building pkg-config would submit a pull request on https://github.com/ferment-pkg/pkg-config-prebuilt with the prefix's output (bin and share).
+## "Unknown Download" Loop
+This can be fixed by entering the `/tmp/ferment` directory and locating the directory named after the package you are trying to install. In there look for a tar.gz file, if there are multiple you might need to look for the newest file in there. With the file's name known you need to rename it to something else and quit the command. Then restore it's original name and install the package again and it should run normally.
 
 
 
