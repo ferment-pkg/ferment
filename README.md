@@ -30,28 +30,19 @@ Operating System: MacOS
 Architecture: amd64, arm64
 
 # Usage
-## Install
-```sh
-ferment install <packages>
-```
 <image src="images/output.gif" >
 
-## Uninstall
-```sh
-ferment uninstall <packages>
-```
-## List
-```sh
-ferment list
-```
-## Search
-```sh
-ferment search <package>
-```
-## Reinstall
-```sh
-ferment reinstall <packages>
-```
+## Docs
+- [Install](Docs/install.md)
+- [Uninstall](Docs/uninstall.md)
+- [List](Docs/list.md)
+- [Reinstall](Docs/reinstall.md)
+- [Update](Docs/update.md)
+- [Upgrade](Docs/upgrade.md)
+- [Clean](Docs/clean.md)
+- [Search](Docs/search.md)
+- [Own](Docs/own.md)
+
 # FAQ
 ## Why Is Ferment Faster Than Brew?
 Ferment is written in GO which is compiled to native code which is faster than the interpreted language ruby.
