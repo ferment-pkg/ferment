@@ -375,9 +375,10 @@ func installPackages(pkg string, verbose string, isDep bool, installedBy string,
 		for _, dep := range dependenciesArr {
 			//check if you can split dep by :
 			var command = dep
-			if strings.Contains(dep, ":") {
-				dep = strings.Split(dep, ":")[0]
-				command = strings.Split(dep, ":")[1]
+			if strings.Contains(dep, "->") {
+				command = strings.Split(dep, "->")[1]
+				dep = strings.Split(dep, "->")[0]
+
 			}
 			fmt.Printf(color.YellowString("Package %s depends on %s\n"), pkg, dep)
 			cmd := exec.Command("which", strings.ReplaceAll(command, "'", ""))
