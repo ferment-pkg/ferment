@@ -22,6 +22,7 @@ import (
 
 	"github.com/fatih/color"
 	"github.com/go-git/go-git/v5"
+	"github.com/radovskyb/watcher"
 	"github.com/spf13/cobra"
 	"github.com/theckman/yacspin"
 	spinner "github.com/theckman/yacspin"
@@ -375,9 +376,10 @@ func installPackages(pkg string, verbose string, isDep bool, installedBy string,
 		for _, dep := range dependenciesArr {
 			//check if you can split dep by :
 			var command = dep
-			if strings.Contains(dep, ":") {
-				dep = strings.Split(dep, ":")[0]
-				command = strings.Split(dep, ":")[1]
+			if strings.Contains(dep, "->") {
+				command = strings.Split(dep, "->")[1]
+				dep = strings.Split(dep, "->")[0]
+
 			}
 			fmt.Printf(color.YellowString("Package %s depends on %s\n"), pkg, dep)
 			cmd := exec.Command("which", strings.ReplaceAll(command, "'", ""))
@@ -796,10 +798,13 @@ func RunInstallationScript(pkg string, verbose string, cwd string) {
 
 	io.WriteString(closer, fmt.Sprintf("pkg=%s()\n", convertToReadableString(strings.ToLower(pkg))))
 	io.WriteString(closer, fmt.Sprintf(`pkg.cwd="%s/Installed/%s"`+"\n", location, cwd))
+	done := make(chan bool)
+	go magicWatcher(pkg, done)
 	io.WriteString(closer, "pkg.install()\n")
 	closer.Close()
 	w.Close()
 	cmd.Wait()
+	done <- true
 	var buf bytes.Buffer
 	io.Copy(&buf, r)
 	//print nothing
@@ -1537,7 +1542,6 @@ func getDownloadProgress(file string, total int64, r *http.Response) float64 {
 	if total == -1 {
 		select {
 		case <-r.Request.Context().Done():
-			fmt.Println("R closed")
 			return 100
 		default:
 			return -1
@@ -1555,4 +1559,40 @@ func writeVersionFile(pkg string, version string) {
 	if err != nil {
 		panic(err)
 	}
+}
+func magicWatcher(pkg string, done chan bool) {
+
+	watch := watcher.New()
+	dirsWatched := []string{"bin", "share", "include", "lib"}
+	for _, dir := range dirsWatched {
+		watch.Add(fmt.Sprintf("/usr/local/%s", dir))
+	}
+	watch.Add("/usr/local")
+	go watch.Start(10 * time.Millisecond)
+	watcherfile, err := os.OpenFile(fmt.Sprintf("%s/Installed/%s/.ferment_watcher", location, pkg), os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0777)
+	if err != nil {
+		panic(err)
+	}
+	go func() {
+		for {
+			select {
+			case event := <-watch.Event:
+				//ger file name
+				if event.Op == watcher.Create || event.Op == watcher.Write && strings.Contains(event.Path, pkg) {
+					watcherfile.WriteString(event.Path + "\n")
+				}
+			case <-watch.Closed:
+				return
+			}
+		}
+	}()
+	for {
+		d := <-done
+		if d {
+			break
+		}
+	}
+	watch.Close()
+	watcherfile.Close()
+
 }
