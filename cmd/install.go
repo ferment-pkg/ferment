@@ -552,6 +552,7 @@ func installPackages(pkg string, verbose string, isDep bool, installedBy string,
 	if caveats := getCaveats(pkg); caveats != nil {
 		fmt.Println(color.YellowString("Caveats:\n"), *caveats)
 	}
+	os.Remove(location + "/ferment.lock")
 
 }
 func GetGitURL(pkg string, verbose string) string {
