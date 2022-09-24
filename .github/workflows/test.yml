@@ -1,0 +1,33 @@
+name: Test
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+
+jobs:
+
+  build:
+    runs-on: macos-latest
+    steps:
+    - uses: actions/checkout@v3
+      with:
+        submodules: recursive
+
+
+    - name: Set up Go
+      uses: actions/setup-go@v3
+      with:
+        go-version: 1.18
+
+    - name: link
+      run: ln -sf $PWD/bin/ferment ferment
+
+    - name: Install a package
+      run: ./ferment install bitgit
+    - name: List Packages
+      run: ./ferment list
+    - name: Show Current Barrells
+      run: ./ferment search
+    - name: Show Version
+      run: ./ferment -v
