@@ -123,6 +123,16 @@ var installCmd = &cobra.Command{
 				color.Red("Package %s already installed", pkg)
 				continue
 			}
+			c, err := os.ReadFile(location + "ferment.lock")
+			if err == nil {
+				content := string(c)
+				color.Red("Lock file exists, PID %s is using the current lockfile", content)
+				os.Exit(1)
+			}
+			err = os.WriteFile(location+"ferment.lock", []byte(fmt.Sprintf("%d", os.Getpid())), 0644)
+			if err != nil {
+				panic(err)
+			}
 			if checkIfSetupPkg(pkg) {
 				s, err := spinner.New(spinner.Config{
 					Frequency:         100 * time.Millisecond,

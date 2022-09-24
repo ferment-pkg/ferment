@@ -1,11 +1,13 @@
 /*
 Copyright © 2022 NotTimIsReal
-
 */
 package cmd
 
 import (
+	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 
 	"github.com/fatih/color"
@@ -23,11 +25,8 @@ var upgradeCmd = &cobra.Command{
 		location = location[:len(location)-len("ferment")]
 		os.Chdir(location)
 		fmt.Println("Getting Local Version On System...")
-		content, err := os.ReadFile("VERSION.meta")
-		if err != nil {
-			panic(err)
-		}
-		fmt.Println("Local Version: " + string(content))
+		config := getConfig(location)
+		fmt.Println("Local Version: " + string(config.Version))
 		fmt.Println("Getting Latest Version On GitHub...")
 		repo, err := git.PlainOpen(".")
 		if err != nil {
@@ -72,4 +71,26 @@ func init() {
 	// Cobra supports local flags which will only run when this command
 	// is called directly, e.g.:
 	// upgradeCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
+}
+
+type Config struct {
+	Version string `json:"version"`
+}
+
+func getConfig(location string) Config {
+	config, err := os.ReadFile(location + "/ferment.config.json")
+	if err != nil {
+		resp, _ := http.Get("https://raw.githubusercontent.com/NotTimIsReal/ferment/main/ferment.config.json")
+		config, _ = io.ReadAll(resp.Body)
+		os.WriteFile(location+"ferment.config.json", config, 0777)
+		configReturnValue := Config{}
+		json.Unmarshal(config, &configReturnValue)
+		return configReturnValue
+	}
+	configReturnValue := Config{}
+	err = json.Unmarshal(config, &configReturnValue)
+	if err != nil {
+		panic(err)
+	}
+	return configReturnValue
 }

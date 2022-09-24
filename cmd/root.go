@@ -1,11 +1,10 @@
 /*
 Copyright © 2022 NotTimIsReal
-
 */
 package cmd
 
 import (
-	"bytes"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -35,22 +34,24 @@ Run ferment install your first package.`, convertAscii(location+"/images/logo.pn
 			panic(err)
 		}
 		if v {
-			resp, _ := http.Get("https://raw.githubusercontent.com/ferment-pkg/ferment/main/VERSION.meta")
+			resp, _ := http.Get("https://raw.githubusercontent.com/ferment-pkg/ferment/main/ferment.config.json")
 			resp.Request.Header.Set("Cache-Control", "private, no-store, max-age=0")
-			var buf bytes.Buffer
-			io.Copy(&buf, resp.Body)
+			git, _ := io.ReadAll(resp.Body)
+
+			var gitConfig Config
+			json.Unmarshal(git, &gitConfig)
+
 			location, err := os.Executable()
 			if err != nil {
 				panic(err)
 			}
 			location = location[:len(location)-len("/ferment")]
-			content, err := os.ReadFile(fmt.Sprintf("%s/VERSION.meta", location))
-			if err != nil {
-				panic(err)
+			config := getConfig(location)
+			fmt.Printf("Ferment: %s\n", config.Version)
+			if gitConfig.Version == "" {
+				gitConfig.Version = "unknown"
 			}
-			version := string(content)
-			fmt.Printf("Ferment %s\n", version)
-			fmt.Printf("Latest Version %s\n", buf.String())
+			fmt.Printf("Latest Version: %s\n", gitConfig.Version)
 			os.Exit(0)
 		}
 		cmd.Help()
