@@ -55,6 +55,11 @@ var upgradeCmd = &cobra.Command{
 		}
 		w.Pull(&git.PullOptions{RemoteName: "origin"})
 		fmt.Println("Successfully Updated All Packages!")
+		fmt.Println("Downloading Binary For Ferment...")
+		resp, _ := http.Get(fmt.Sprintf("https://github.com/ferment-pkg/ferment/releases/download/v%s/ferment", config.Version))
+		binary, _ := io.ReadAll(resp.Body)
+		os.WriteFile(location+"ferment", binary, 0777)
+		fmt.Println("Successfully Updated Ferment!")
 
 	},
 }
