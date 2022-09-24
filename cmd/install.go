@@ -384,7 +384,10 @@ func installPackages(pkg string, verbose string, isDep bool, installedBy string,
 	//run a function for each dependecy in dependenciesArr
 	if !strings.Contains(dependencies, "Traceback(mostrecentcalllast)") && len(dependencies) != 0 {
 		for _, dep := range dependenciesArr {
-			//check if you can split dep by :
+			//check if dependency starts with :
+			if strings.HasPrefix(dep, ":") && !buildFromSource {
+				continue
+			}
 			var command = dep
 			if strings.Contains(dep, "->") {
 				command = strings.Split(dep, "->")[1]
