@@ -86,7 +86,9 @@ func convertAscii(imageFilename string) string {
 	convertOptions.FixedHeight = 40
 	convertOptions.Colored = true
 	convertOptions.FitScreen = true
-
+	if _, err := os.Open(imageFilename); err != nil {
+		return ""
+	}
 	// Create the image converter
 	converter := convert.NewImageConverter()
 	return converter.ImageFile2ASCIIString(imageFilename, &convertOptions)

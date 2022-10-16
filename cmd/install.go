@@ -31,6 +31,22 @@ import (
 var l, _ = os.Executable()
 var location = l[:len(l)-len("/ferment")]
 
+type pkg struct {
+	name         string
+	version      string
+	alias        []string
+	desc         string
+	dependencies []string
+	Dbuild       []string
+	arch         []string
+	source       []string
+	build        string
+	install      string
+	test         string
+	caveats      string
+	license      string
+}
+
 // installCmd represents the install command
 var installCmd = &cobra.Command{
 	Use:   "install <package>",
@@ -344,7 +360,18 @@ func installPackages(pkg string, verbose string, isDep bool, installedBy string,
 		panic(err)
 	}
 	location = location[:len(location)-len("/ferment")]
-	content, err := os.ReadFile(fmt.Sprintf("%s/Barrells/%s.py", location, convertToReadableString(strings.ToLower(pkg))))
+	var legacyPython bool = false
+	content, err := os.ReadFile(fmt.Sprintf("%sBarrells/%s.dpkg", location, convertToReadableString(strings.ToLower(pkg))))
+	if err != nil {
+		if os.IsNotExist(err) {
+			content, err = os.ReadFile(fmt.Sprintf("%s/Barrells/%s.py", location, convertToReadableString(strings.ToLower(pkg))))
+			legacyPython = true
+		} else {
+			panic(err)
+		}
+
+	}
+
 	if err != nil {
 		if strings.Contains(err.Error(), "no such file or directory") {
 			fmt.Println(color.RedString("Reinstall ferment, Barrells is missing"))
@@ -352,79 +379,143 @@ func installPackages(pkg string, verbose string, isDep bool, installedBy string,
 		}
 		panic(err)
 	}
-	cmd := exec.Command("python3")
-	closer, err := cmd.StdinPipe()
-	if err != nil {
-		panic(err)
-	}
-	defer closer.Close()
-	if verbose == "true" {
-		fmt.Println("Starting STDIN pipe")
-	}
-	r, w, _ := os.Pipe()
-	cmd.Stdout = w
-	cmd.Stderr = w
-	cmd.Dir = fmt.Sprintf("%s/Barrells", location)
-	cmd.Start()
-	closer.Write(content)
-	closer.Write([]byte("\n"))
-	io.WriteString(closer, fmt.Sprintf("pkg=%s()\n", convertToReadableString(strings.ToLower(pkg))))
-	io.WriteString(closer, "print(pkg.dependencies)\n")
-	closer.Close()
-	w.Close()
-	cmd.Wait()
-	var buf bytes.Buffer
-	io.Copy(&buf, r)
-	dependencies := strings.Split(buf.String(), "\n")[0]
-	dependencies = strings.Replace(dependencies, "[", "", 1)
-	dependencies = strings.Replace(dependencies, "]", "", 1)
-	dependencies = strings.Replace(dependencies, " ", "", -1)
-	dependencies = strings.Replace(dependencies, "'", "", -1)
-	dependenciesArr := strings.Split(dependencies, ",")
-	//run a function for each dependecy in dependenciesArr
-	if !strings.Contains(dependencies, "Traceback(mostrecentcalllast)") && len(dependencies) != 0 {
-		for _, dep := range dependenciesArr {
-			//check if dependency starts with :
-			if strings.HasPrefix(dep, ":") && !buildFromSource {
-				continue
-			}
-			var command = dep
-			if strings.Contains(dep, "->") {
-				command = strings.Split(dep, "->")[1]
-				dep = strings.Split(dep, "->")[0]
+	if legacyPython {
+		cmd := exec.Command("python3")
+		closer, err := cmd.StdinPipe()
+		if err != nil {
+			panic(err)
+		}
+		defer closer.Close()
+		if verbose == "true" {
+			fmt.Println("Starting STDIN pipe")
+		}
+		r, w, _ := os.Pipe()
+		cmd.Stdout = w
+		cmd.Stderr = w
+		cmd.Dir = fmt.Sprintf("%s/Barrells", location)
+		cmd.Start()
+		closer.Write(content)
+		closer.Write([]byte("\n"))
+		io.WriteString(closer, fmt.Sprintf("pkg=%s()\n", convertToReadableString(strings.ToLower(pkg))))
+		io.WriteString(closer, "print(pkg.dependencies)\n")
+		closer.Close()
+		w.Close()
+		cmd.Wait()
+		var buf bytes.Buffer
+		io.Copy(&buf, r)
+		dependencies := strings.Split(buf.String(), "\n")[0]
+		dependencies = strings.Replace(dependencies, "[", "", 1)
+		dependencies = strings.Replace(dependencies, "]", "", 1)
+		dependencies = strings.Replace(dependencies, " ", "", -1)
+		dependencies = strings.Replace(dependencies, "'", "", -1)
+		dependenciesArr := strings.Split(dependencies, ",")
+		//run a function for each dependecy in dependenciesArr
+		if !strings.Contains(dependencies, "Traceback(mostrecentcalllast)") && len(dependencies) != 0 {
+			for _, dep := range dependenciesArr {
+				//check if dependency starts with :
+				if strings.HasPrefix(dep, ":") && !buildFromSource {
+					continue
+				}
+				var command = dep
+				if strings.Contains(dep, "->") {
+					command = strings.Split(dep, "->")[1]
+					dep = strings.Split(dep, "->")[0]
+
+				}
+				fmt.Printf(color.YellowString("Package %s depends on %s\n"), pkg, dep)
+				cmd := exec.Command("which", strings.ReplaceAll(command, "'", ""))
+				r, w, err := os.Pipe()
+				if err != nil {
+					panic(err)
+				}
+				cmd.Stdout = w
+				cmd.Start()
+				w.Close()
+				cmd.Wait()
+				var buf bytes.Buffer
+				io.Copy(&buf, r)
+				_, err = os.Stat(fmt.Sprintf("%s/Barrells/%s.py", location, convertToReadableString(strings.ToLower(dep))))
+				if os.IsNotExist(err) {
+					color.Yellow("Not Downloadable By Ferment, Skipping")
+					continue
+				}
+				if buf.String() != "" {
+					fmt.Printf(color.YellowString("%s is already installed\n"), dep)
+					EditDepsTracker(dep, pkg)
+					fmt.Println(color.YellowString("Skipping"))
+					continue
+				}
+				if IsLib(dep) && checkIfPackageExists(dep) {
+					fmt.Printf(color.YellowString("%s is a library and is already installed\n"), dep)
+					EditDepsTracker(dep, pkg)
+					fmt.Println(color.YellowString("Skipping"))
+					continue
+				}
+
+				fmt.Printf(color.YellowString("Now Downloading %s\n"), dep)
+				s, err := spinner.New(spinner.Config{
+					Frequency:       100 * time.Millisecond,
+					CharSet:         spinner.CharSets[57],
+					Suffix:          color.GreenString(" %s", dep),
+					SuffixAutoColon: true,
+					Message:         "Getting Download Info",
+					StopCharacter:   "✓",
+					StopColors:      []string{"fgGreen"},
+					StopFailMessage: "Failed",
+					StopFailColors:  []string{"fgRed"},
+				})
+				if err != nil {
+					panic(err)
+				}
+				s.Start()
+
+				if UsingGit(dep, verbose) {
+					url := GetGitURL(dep, verbose)
+					err := DownloadFromGithub(url, fmt.Sprintf("%s/Installed/%s", location, dep), verbose)
+					if err != nil {
+						panic(err)
+					}
+					s.Stop()
+					installPackages(dep, verbose, true, pkg, buildFromSource)
+					//TestInstallationScript(dep, verbose)
+				} else if checkIfSetupPkg(dep) {
+					installPackageWithSetup(dep, s)
+
+					installPackages(dep, verbose, true, pkg, buildFromSource)
+
+				} else if checkifPrebuildSuitable(dep) {
+					if _, err := checkIfPrebuildApi(dep); err == nil {
+						prebuildDownloadFromAPI(dep, getFileFromLink(*getPrebuildURL(dep)), s)
+					} else {
+						DownloadFromTar(dep, *getPrebuildURL(dep), verbose, s)
+					}
+					s.Stop()
+					installPackages(dep, verbose, true, pkg, buildFromSource)
+				} else {
+					GetDownloadUrl(dep, verbose, s)
+					s.Stop()
+					installPackages(dep, verbose, true, pkg, buildFromSource)
+					// TestInstallationScript(dep, verbose)
+				}
 
 			}
-			fmt.Printf(color.YellowString("Package %s depends on %s\n"), pkg, dep)
-			cmd := exec.Command("which", strings.ReplaceAll(command, "'", ""))
-			r, w, err := os.Pipe()
-			if err != nil {
-				panic(err)
-			}
-			cmd.Stdout = w
-			cmd.Start()
-			w.Close()
-			cmd.Wait()
-			var buf bytes.Buffer
-			io.Copy(&buf, r)
-			_, err = os.Stat(fmt.Sprintf("%s/Barrells/%s.py", location, convertToReadableString(strings.ToLower(dep))))
-			if os.IsNotExist(err) {
-				color.Yellow("Not Downloadable By Ferment, Skipping")
-				continue
-			}
-			if buf.String() != "" {
-				fmt.Printf(color.YellowString("%s is already installed\n"), dep)
-				EditDepsTracker(dep, pkg)
-				fmt.Println(color.YellowString("Skipping"))
+		}
+	} else {
+		pkg := parseFpkg(fmt.Sprintf("%s/Barrells/%s.fpkg", location, pkg))
+		for _, dep := range pkg.dependencies {
+			color.Yellow("Package %s depends on %s", pkg.name, dep)
+			if exec.Command("which", dep).Wait() == nil {
+				color.Yellow("%s is already installed or already exists", dep)
+				EditDepsTracker(dep, pkg.name)
+				color.Yellow("Skipping")
 				continue
 			}
 			if IsLib(dep) && checkIfPackageExists(dep) {
-				fmt.Printf(color.YellowString("%s is a library and is already installed\n"), dep)
-				EditDepsTracker(dep, pkg)
-				fmt.Println(color.YellowString("Skipping"))
+				color.Yellow("%s is a library and is already installed", dep)
+				EditDepsTracker(dep, pkg.name)
+				color.Yellow("Skipping")
 				continue
 			}
-
-			fmt.Printf(color.YellowString("Now Downloading %s\n"), dep)
 			s, err := spinner.New(spinner.Config{
 				Frequency:       100 * time.Millisecond,
 				CharSet:         spinner.CharSets[57],
@@ -440,7 +531,7 @@ func installPackages(pkg string, verbose string, isDep bool, installedBy string,
 				panic(err)
 			}
 			s.Start()
-
+			// TODO Add support for new fpkg format
 			if UsingGit(dep, verbose) {
 				url := GetGitURL(dep, verbose)
 				err := DownloadFromGithub(url, fmt.Sprintf("%s/Installed/%s", location, dep), verbose)
@@ -448,29 +539,21 @@ func installPackages(pkg string, verbose string, isDep bool, installedBy string,
 					panic(err)
 				}
 				s.Stop()
-				installPackages(dep, verbose, true, pkg, buildFromSource)
+				installPackages(dep, verbose, true, pkg.name, buildFromSource)
 				//TestInstallationScript(dep, verbose)
-			} else if checkIfSetupPkg(dep) {
-				installPackageWithSetup(dep, s)
-
-				installPackages(dep, verbose, true, pkg, buildFromSource)
-
-			} else if checkifPrebuildSuitable(dep) {
-				if _, err := checkIfPrebuildApi(dep); err == nil {
-					prebuildDownloadFromAPI(dep, getFileFromLink(*getPrebuildURL(dep)), s)
-				} else {
-					DownloadFromTar(dep, *getPrebuildURL(dep), verbose, s)
-				}
+			} else if !buildFromSource {
+				prebuildDownloadFromAPI(dep, getFileFromLink(*getPrebuildURL(dep)), s)
 				s.Stop()
-				installPackages(dep, verbose, true, pkg, buildFromSource)
+				installPackages(dep, verbose, true, pkg.name, buildFromSource)
 			} else {
 				GetDownloadUrl(dep, verbose, s)
 				s.Stop()
-				installPackages(dep, verbose, true, pkg, buildFromSource)
+				installPackages(dep, verbose, true, pkg.name, buildFromSource)
 				// TestInstallationScript(dep, verbose)
 			}
 
 		}
+
 	}
 	if e, _ := checkIfDepExists(pkg); e {
 		EditDepsTracker(pkg, installedBy)
@@ -564,40 +647,54 @@ func GetGitURL(pkg string, verbose string) string {
 	if err != nil {
 		panic(err)
 	}
-	location = location[:len(location)-len("/ferment")]
-	content, err := os.ReadFile(fmt.Sprintf("%s/Barrells/%s.py", location, convertToReadableString(strings.ToLower(pkg))))
-	if err != nil {
-		if strings.Contains(err.Error(), "no such file or directory") {
-			fmt.Println(color.RedString("Reinstall ferment, Barrells is missing"))
-			os.Exit(1)
-		}
-		panic(err)
-	}
-	cmd := exec.Command("python3")
-	closer, err := cmd.StdinPipe()
-	if err != nil {
-		panic(err)
-	}
-	defer closer.Close()
-	if verbose == "true" {
-		fmt.Println("Starting STDIN pipe")
-	}
-	r, w, _ := os.Pipe()
-	cmd.Stdout = w
-	cmd.Stderr = os.Stderr
-	cmd.Dir = fmt.Sprintf("%s/Barrells", location)
-	cmd.Start()
-	closer.Write(content)
-	closer.Write([]byte("\n"))
-	io.WriteString(closer, fmt.Sprintf("pkg=%s()\n", convertToReadableString(strings.ToLower(pkg))))
-	io.WriteString(closer, "print(pkg.url)\n")
-	closer.Close()
-	w.Close()
-	cmd.Wait()
-	var buf bytes.Buffer
-	io.Copy(&buf, r)
-	return buf.String()
 
+	location = location[:len(location)-len("/ferment")]
+	if path := checkifFpkgExists(pkg); pkg != "" {
+		pkg := parseFpkg(path)
+		var git string
+		for _, source := range pkg.source {
+			//check if source ends with .git
+			if strings.HasSuffix(source, ".git") {
+				git = source
+				break
+			}
+		}
+		return git
+
+	} else {
+		content, err := os.ReadFile(fmt.Sprintf("%s/Barrells/%s.py", location, convertToReadableString(strings.ToLower(pkg))))
+		if err != nil {
+			if strings.Contains(err.Error(), "no such file or directory") {
+				fmt.Println(color.RedString("Reinstall ferment, Barrells is missing"))
+				os.Exit(1)
+			}
+			panic(err)
+		}
+		cmd := exec.Command("python3")
+		closer, err := cmd.StdinPipe()
+		if err != nil {
+			panic(err)
+		}
+		defer closer.Close()
+		if verbose == "true" {
+			fmt.Println("Starting STDIN pipe")
+		}
+		r, w, _ := os.Pipe()
+		cmd.Stdout = w
+		cmd.Stderr = os.Stderr
+		cmd.Dir = fmt.Sprintf("%s/Barrells", location)
+		cmd.Start()
+		closer.Write(content)
+		closer.Write([]byte("\n"))
+		io.WriteString(closer, fmt.Sprintf("pkg=%s()\n", convertToReadableString(strings.ToLower(pkg))))
+		io.WriteString(closer, "print(pkg.url)\n")
+		closer.Close()
+		w.Close()
+		cmd.Wait()
+		var buf bytes.Buffer
+		io.Copy(&buf, r)
+		return buf.String()
+	}
 }
 func DownloadFromTar(pkg string, url string, verbose string, spinner *spinner.Spinner) string {
 	resp, err := http.Get(url)
@@ -1609,4 +1706,115 @@ func magicWatcher(pkg string, done chan bool) {
 	watch.Close()
 	watcherfile.Close()
 
+}
+func parseFpkg(file string) pkg {
+	c, err := os.ReadFile(file)
+	if err != nil {
+		panic(err)
+	}
+	//parse the file
+
+	content := string(c)
+	var pkg pkg
+	arrayContent := strings.Split(content, "\n")
+	var skipToIndex int = 0
+	for i, line := range arrayContent {
+		if i < skipToIndex {
+			continue
+		}
+		lineCut := strings.Split(line, "=")
+		if len(lineCut) > 1 {
+			lineCut[1] = strings.ReplaceAll(lineCut[1], "\"", "")
+			switch lineCut[0] {
+			case "pkgname":
+				pkg.name = lineCut[1]
+			case "version":
+				pkg.version = lineCut[1]
+			case "desc":
+				pkg.desc = lineCut[1]
+			case "alias":
+				pkg.alias = strings.Split(lineCut[1], ",")
+			case "arch":
+				pkg.arch = strings.Split(lineCut[1], ",")
+			case "dependencies":
+				pkg.dependencies = strings.Split(lineCut[1], ",")
+			case "Dbuild":
+				pkg.Dbuild = strings.Split(lineCut[1], ",")
+			case "source":
+				pkg.source = strings.Split(lineCut[1], ",")
+			case "license":
+				pkg.license = lineCut[1]
+			case "caveats":
+				pkg.caveats = lineCut[1]
+
+			}
+		} else if strings.Contains(line, "()") {
+			//starting from index i look for a }
+			var indexOfEnd int
+			for i, line := range arrayContent[i:] {
+				if strings.Contains(line, "}") {
+					indexOfEnd = i
+					break
+				}
+
+			}
+			//get the function name
+			functionName := strings.Split(line, "(")[0]
+			//get the function body
+			functionBody := strings.Join(arrayContent[i:i+indexOfEnd], "\n")
+			//add the function to the pkg
+			switch functionName {
+			case "build":
+				pkg.build = functionBody
+			case "install":
+				pkg.install = functionBody
+			case "test":
+				pkg.test = functionBody
+
+			}
+		}
+		skipToIndex++
+	}
+	//check if every field in pkg is filled
+	if pkg.name == "" || pkg.version == "" || pkg.desc == "" || pkg.arch == nil || pkg.source == nil || pkg.build == "" || pkg.install == "" || pkg.test == "" {
+		panic("Invalid fpkg file")
+	}
+	return pkg
+}
+func checkIfFpkg(filename string) bool {
+	if strings.Contains(filename, ".fpkg") {
+		return true
+	}
+	return false
+}
+func checkifFpkgExists(pkg string) string {
+	//look through barrells directory
+	files, err := os.ReadDir(fmt.Sprintf("%s/Barrels", location))
+	if err != nil {
+		panic(err)
+	}
+	for _, file := range files {
+		//check if the file exists
+		if _, err := os.Stat(fmt.Sprintf("%s/Barrels/%s/%s.fpkg", location, file.Name(), pkg)); err == nil {
+			return fmt.Sprintf("%s/Barrels/%s/%s.fpkg", location, file.Name(), pkg)
+		}
+	}
+	return ""
+}
+func getPrebuildUrlFromFpkg(pkg string) string {
+	//look through barrells directory
+	files, err := os.ReadDir(fmt.Sprintf("%s/Barrels", location))
+	if err != nil {
+		panic(err)
+	}
+	for _, file := range files {
+		//check if the file exists
+		if _, err := os.Stat(fmt.Sprintf("%s/Barrels/%s/%s.fpkg", location, file.Name(), pkg)); err == nil {
+			//get the fpkg file
+			fpkgFile := parseFpkg(fmt.Sprintf("%s/Barrels/%s/%s.fpkg", location, file.Name(), pkg))
+			//get the url
+			return fpkgFile.source[0]
+		}
+	}
+	return ""
 }
