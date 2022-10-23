@@ -1,0 +1,25 @@
+pkgname=qemu
+alias="qemu-kvm"
+version=2.7.9-rc2
+desc="A emulator for computers"
+arch="amd64","arm64"
+source="",""
+dependencies=sdl2,htop
+Dbuild=automake,autoconf
+license=MIT
+
+build(){
+    ./build.sh
+    arm64:
+        cp build arm64
+    amd64:
+        cp build amd64
+}
+
+test(){
+    $output=command -v
+    match output "v1"
+}
+install(){
+    ln -s * /
+}

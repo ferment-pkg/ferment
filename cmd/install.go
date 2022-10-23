@@ -4,6 +4,7 @@ Copyright © 2022 NotTimIsReal
 package cmd
 
 import (
+	"archive/tar"
 	"bytes"
 	"encoding/json"
 	"errors"
@@ -23,9 +24,11 @@ import (
 	"github.com/fatih/color"
 	"github.com/go-git/go-git/v5"
 	"github.com/radovskyb/watcher"
+	"github.com/spf13/afero"
 	"github.com/spf13/cobra"
 	"github.com/theckman/yacspin"
 	spinner "github.com/theckman/yacspin"
+	"github.com/ulikunitz/xz"
 )
 
 var l, _ = os.Executable()
@@ -82,7 +85,7 @@ var installCmd = &cobra.Command{
 		}
 		for _, pkg := range args {
 			var foundPkg bool = false
-			verbose, err := cmd.Flags().GetString("verbose")
+			verbose, err := cmd.Flags().GetBool("verbose")
 
 			if err != nil {
 
@@ -95,46 +98,47 @@ var installCmd = &cobra.Command{
 
 				panic(err)
 			}
-			if verbose == "" {
-				verbose = "false"
+			type pkgI struct {
+				LatestVersion string   `json:"latestVersion"`
+				AllFiles      []string `json:"allFiles"`
 			}
 			pkg = convertToReadableString(strings.ToLower(pkg))
 			if strings.Contains(pkg, "@") {
 				//set env
 				os.Setenv("FERMENT_PKG_VERSION", strings.Split(pkg, "@")[1])
 				pkg = strings.Split(pkg, "@")[0]
-			}
-			if !IsUrl(pkg) {
-				//search for package in default list
-				if verbose == "true" {
-					fmt.Println("Searching for package in default list")
-				}
-				files, err := os.ReadDir(fmt.Sprintf("%s/Barrells", location))
+			} else {
+				resp, err := http.Get(fmt.Sprintf("https://api.fermentpkg.tech/barrells/info/%s", pkg))
 				if err != nil {
-					panic(err)
-				}
-
-				for _, v := range files {
-					name := strings.ToLower(v.Name())
-					if strings.Split(name, ".")[0] == strings.ToLower(pkg) {
-						if verbose == "true" {
-							fmt.Println("Found package in default list")
-						}
-						foundPkg = true
-						break
-					}
-				}
-				if !foundPkg {
-					fmt.Println("Package not found in default list or https URL invalid")
+					color.Red("Error getting package info")
 					os.Exit(1)
 				}
+				defer resp.Body.Close()
 
+				var pkgInfo pkgI
+				json.NewDecoder(resp.Body).Decode(&pkgInfo)
+				os.Setenv("FERMENT_PKG_VERSION", pkgInfo.LatestVersion)
+			}
+			//search for package in default list
+			if verbose {
+				fmt.Println("Searching for package in default list")
+			}
+			files, err := os.ReadDir(fmt.Sprintf("%s/Barrells", location))
+			if err != nil {
+				panic(err)
 			}
 
-			if !foundPkg {
-				color.RedString("ERROR: %s", errors.New("downloading from url is not supported anymore"))
-				os.Exit(1)
+			for _, v := range files {
+				name := strings.ToLower(v.Name())
+				if strings.Split(name, ".")[0] == strings.ToLower(strings.Join([]string{pkg, os.Getenv("FERMENT_PKG_VERSION")}, "@")) {
+					if verbose {
+						fmt.Println("Found package in default list")
+					}
+					foundPkg = true
+					break
+				}
 			}
+
 			if e, _ := exists(fmt.Sprintf("%s/Installed/%s", location, pkg)); e {
 				color.Red("Package %s already installed", pkg)
 				continue
@@ -146,29 +150,7 @@ var installCmd = &cobra.Command{
 				os.Exit(1)
 			}
 			err = os.WriteFile(location+"ferment.lock", []byte(fmt.Sprintf("%d", os.Getpid())), 0644)
-			if err != nil {
-				panic(err)
-			}
-			if checkIfSetupPkg(pkg) {
-				s, err := spinner.New(spinner.Config{
-					Frequency:         100 * time.Millisecond,
-					CharSet:           spinner.CharSets[57],
-					Suffix:            color.GreenString(" Setup"),
-					SuffixAutoColon:   true,
-					Message:           "Download",
-					StopCharacter:     "✓",
-					StopColors:        []string{"fgGreen"},
-					StopFailCharacter: "✗",
-					StopFailColors:    []string{"fgRed"},
-				}) // Build our new spinner
-				if err != nil {
-					panic(err)
-				}
-				installPackageWithSetup(pkg, s)
-				installPackages(pkg, verbose, false, "", false)
-				os.Exit(0)
-			}
-			if !buildfromsource && checkifPrebuildSuitable(pkg) {
+			if !foundPkg {
 				s, err := spinner.New(spinner.Config{
 					Frequency:         100 * time.Millisecond,
 					CharSet:           spinner.CharSets[57],
@@ -184,95 +166,48 @@ var installCmd = &cobra.Command{
 					panic(err)
 				}
 				s.Start()
-				f, err := checkIfPrebuildApi(pkg)
+				resp, err := http.Get(fmt.Sprintf("https://api.fermentpkg.tech/barrells/info/%s/", pkg))
 				if err != nil {
-					color.Red("ERROR: %s", err)
+					color.Red("Error getting package info")
 					os.Exit(1)
 				}
-				//if arch ==arm64 then print e else print f
-				if runtime.GOARCH == "amd64" && f.usingFermentTag.amd64 {
-					s.Message("Downloading From API")
-					prebuildDownloadFromAPI(pkg, getFileFromLink(f.amd64), s)
-				} else if runtime.GOARCH == "arm64" && f.usingFermentTag.arm64 {
-					s.Message("Downloading From API")
-					prebuildDownloadFromAPI(pkg, getFileFromLink(f.arm64), s)
+				defer resp.Body.Close()
+				type pkgI struct {
+					LatestVersion string   `json:"latestVersion"`
+					AllFiles      []string `json:"allFiles"`
+					Universal     bool     `json:"universal"`
+				}
+				var pkgInfo pkgI
+				json.NewDecoder(resp.Body).Decode(&pkgInfo)
+				if pkgInfo.Universal {
+					s.Message("Downloading From API (universal)")
+					prebuildDownloadFromAPI(pkg, fmt.Sprintf("%s@%s.ferment", pkg, os.Getenv("FERMENT_PKG_VERSION")), s)
+
 				} else {
-					s.Message("Downloading From 3rd Party Link")
-					DownloadFromTar(pkg, *getPrebuildURL(pkg), verbose, s)
+					s.Message("Downloading From API (single-arch)")
+					prebuildDownloadFromAPI(pkg, fmt.Sprintf("%s@%s.%s.ferment", pkg, os.Getenv("FERMENT_PKG_VERSION"), runtime.GOARCH), s)
 				}
 
 				s.Stop()
+			}
+
+			if err != nil {
+				panic(err)
+			}
+			if !buildfromsource && checkifPrebuildSuitable(pkg) {
+
 				installPackages(pkg, verbose, false, "", false)
 				os.Exit(0)
 			}
-			if UsingGit(pkg, verbose) {
-				s, err := spinner.New(spinner.Config{
-					Frequency:         100 * time.Millisecond,
-					CharSet:           spinner.CharSets[57],
-					Suffix:            color.GreenString(" Git"),
-					SuffixAutoColon:   true,
-					Message:           "Download",
-					StopCharacter:     "✓",
-					StopColors:        []string{"fgGreen"},
-					StopFailCharacter: "✗",
-					StopFailColors:    []string{"fgRed"},
-				}) // Build our new spinner
-				if err != nil {
-					s.Stop()
-					fmt.Println(color.RedString(err.Error()))
-					fmt.Println(color.RedString("Aborting"))
-					os.Exit(1)
-				}
-				s.Message("Downloading From Git")
-				s.Start()
-				url := GetGitURL(pkg, verbose)
-				err = DownloadFromGithub(url, fmt.Sprintf("%s/Installed/%s", location, pkg), verbose)
-				if err != nil {
-					s.Stop()
-					fmt.Println(color.RedString(err.Error()))
-					fmt.Println(color.RedString("Aborting"))
-					os.Exit(1)
-				}
-				s.Stop()
-				installPackages(pkg, verbose, false, "", buildfromsource)
-
-			} else {
-				s, err := spinner.New(spinner.Config{
-					Frequency:         100 * time.Millisecond,
-					CharSet:           spinner.CharSets[57],
-					Suffix:            color.GreenString(" Normal"),
-					SuffixAutoColon:   true,
-					Message:           "Download",
-					StopCharacter:     "✓",
-					StopColors:        []string{"fgGreen"},
-					StopFailCharacter: "✗",
-					StopFailColors:    []string{"fgRed"},
-				}) // Build our new spinner
-				if err != nil {
-					s.Stop()
-					fmt.Println(color.RedString(err.Error()))
-					fmt.Println(color.RedString("Aborting"))
-					os.Exit(1)
-				}
-				s.Message("Getting Download Info")
-				s.Start()
-				GetDownloadUrl(pkg, verbose, s)
-				// DownloadInstructions(pkg)
-				s.Stop()
-
-				installPackages(pkg, verbose, false, "", buildfromsource)
-			}
 		}
-
 	},
 }
 
 func init() {
 	rootCmd.AddCommand(installCmd)
-	installCmd.PersistentFlags().StringP("verbose", "v", "", "Log All Output")
+	installCmd.PersistentFlags().BoolP("verbose", "v", false, "Log All Output")
 	installCmd.PersistentFlags().Bool("no-cache", false, "Not to use cached downloads")
 	installCmd.PersistentFlags().BoolP("build-from-source", "b", false, "Build From Source or use an available prebuild")
-	installCmd.Flag("verbose").NoOptDefVal = "true"
 
 	// Here you will define your flags and configuration settings.
 
@@ -288,8 +223,8 @@ func IsUrl(str string) bool {
 	u, err := url.Parse(str)
 	return (err == nil && u.Scheme != "" && u.Host != "")
 }
-func DownloadFromGithub(url string, path string, verbose string) error {
-	if verbose == "true" {
+func DownloadFromGithub(url string, path string, verbose bool) error {
+	if verbose {
 		fmt.Println("Downloading from Github")
 	}
 	_, err := git.PlainClone(path, false, &git.CloneOptions{
@@ -301,12 +236,12 @@ func DownloadFromGithub(url string, path string, verbose string) error {
 		}
 		return err
 	}
-	if verbose == "true" {
+	if verbose {
 		fmt.Println("Downloaded from Github")
 	}
 	return nil
 }
-func UsingGit(pkg string, verbose string) bool {
+func UsingGit(pkg string, verbose bool) bool {
 	location, err := os.Executable()
 	if err != nil {
 		panic(err)
@@ -326,7 +261,7 @@ func UsingGit(pkg string, verbose string) bool {
 		panic(err)
 	}
 	defer closer.Close()
-	if verbose == "true" {
+	if verbose {
 		fmt.Println("Starting STDIN pipe")
 	}
 	old := os.Stdout
@@ -350,8 +285,51 @@ func UsingGit(pkg string, verbose string) bool {
 	//fmt.Println(out)
 
 }
-func installPackages(pkg string, verbose string, isDep bool, installedBy string, buildFromSource bool) {
-	if verbose == "true" {
+
+// TODO: Create the ExtractToMemory function
+func extractFerment(path string) (filesystem afero.Fs, err error) {
+	fs := afero.NewMemMapFs()
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+	xzReader, err := xz.NewReader(file)
+	if err != nil {
+		return nil, err
+	}
+	tarReader := tar.NewReader(xzReader)
+	for {
+		header, err := tarReader.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return nil, err
+		}
+		switch header.Typeflag {
+		case tar.TypeDir:
+			if err := fs.MkdirAll(fmt.Sprintf(header.Name), 0755); err != nil {
+				return nil, err
+			}
+		case tar.TypeReg:
+			f, err := fs.Create(header.Name)
+			if err != nil {
+				return nil, err
+			}
+			if _, err := io.Copy(f, tarReader); err != nil {
+				return nil, err
+			}
+			f.Close()
+		default:
+			return nil, fmt.Errorf("unable to untar type: %c in file %s", header.Typeflag, header.Name)
+		}
+	}
+
+	return fs, nil
+}
+func installPackages(packageName string, verbose bool, isDep bool, installedBy string, buildFromSource bool) {
+	if verbose {
 		fmt.Println("Looking For Dependencies")
 	}
 	//Variables
@@ -360,17 +338,9 @@ func installPackages(pkg string, verbose string, isDep bool, installedBy string,
 		panic(err)
 	}
 	location = location[:len(location)-len("/ferment")]
-	var legacyPython bool = false
-	content, err := os.ReadFile(fmt.Sprintf("%sBarrells/%s.dpkg", location, convertToReadableString(strings.ToLower(pkg))))
-	if err != nil {
-		if os.IsNotExist(err) {
-			content, err = os.ReadFile(fmt.Sprintf("%s/Barrells/%s.py", location, convertToReadableString(strings.ToLower(pkg))))
-			legacyPython = true
-		} else {
-			panic(err)
-		}
-
-	}
+	name := strings.Split(convertToReadableString(strings.ToLower(packageName)), "@")[0]
+	version := strings.Split(convertToReadableString(strings.ToLower(packageName)), "@")[1]
+	_, err = os.ReadFile(fmt.Sprintf("%s/Barrells/%s.ferment", location, name))
 
 	if err != nil {
 		if strings.Contains(err.Error(), "no such file or directory") {
@@ -379,191 +349,77 @@ func installPackages(pkg string, verbose string, isDep bool, installedBy string,
 		}
 		panic(err)
 	}
-	if legacyPython {
-		cmd := exec.Command("python3")
-		closer, err := cmd.StdinPipe()
+
+	// pkg.ferment is a tar.xz file
+	// extract to fs
+	fs, err := extractFerment(fmt.Sprintf("%s/Barrells/%s.ferment", location, name))
+	if err != nil {
+		panic(err)
+	}
+	fpkg, err := fs.Open(fmt.Sprintf("%s.pkg", name))
+	if err != nil {
+		panic(err)
+	}
+	defer fpkg.Close()
+	os.MkdirAll(fmt.Sprintf("/tmp/ferment/%s/%s", name, version), 0755)
+	fpkgOut, err := os.OpenFile(fmt.Sprintf("/tmp/ferment/%s/%s/%s.fpkg", name, version, name), os.O_WRONLY|os.O_CREATE, 0666)
+	if err != nil {
+		panic(err)
+	}
+	io.Copy(fpkgOut, fpkg)
+	pkg := parseFpkg(fmt.Sprintf("/tmp/ferment/%s/%s/%s.fpkg", name, version, name))
+	for _, dep := range pkg.dependencies {
+		color.Yellow("Package %s depends on %s", pkg.name, dep)
+		if exec.Command("which", dep).Wait() == nil {
+			color.Yellow("%s is already installed or already exists", dep)
+			EditDepsTracker(dep, pkg.name)
+			color.Yellow("Skipping")
+			continue
+		}
+		if IsLib(dep) && checkIfPackageExists(dep) {
+			color.Yellow("%s is a library and is already installed", dep)
+			EditDepsTracker(dep, pkg.name)
+			color.Yellow("Skipping")
+			continue
+		}
+		s, err := spinner.New(spinner.Config{
+			Frequency:       100 * time.Millisecond,
+			CharSet:         spinner.CharSets[57],
+			Suffix:          color.GreenString(" %s", dep),
+			SuffixAutoColon: true,
+			Message:         "Getting Download Info",
+			StopCharacter:   "✓",
+			StopColors:      []string{"fgGreen"},
+			StopFailMessage: "Failed",
+			StopFailColors:  []string{"fgRed"},
+		})
 		if err != nil {
 			panic(err)
 		}
-		defer closer.Close()
-		if verbose == "true" {
-			fmt.Println("Starting STDIN pipe")
-		}
-		r, w, _ := os.Pipe()
-		cmd.Stdout = w
-		cmd.Stderr = w
-		cmd.Dir = fmt.Sprintf("%s/Barrells", location)
-		cmd.Start()
-		closer.Write(content)
-		closer.Write([]byte("\n"))
-		io.WriteString(closer, fmt.Sprintf("pkg=%s()\n", convertToReadableString(strings.ToLower(pkg))))
-		io.WriteString(closer, "print(pkg.dependencies)\n")
-		closer.Close()
-		w.Close()
-		cmd.Wait()
-		var buf bytes.Buffer
-		io.Copy(&buf, r)
-		dependencies := strings.Split(buf.String(), "\n")[0]
-		dependencies = strings.Replace(dependencies, "[", "", 1)
-		dependencies = strings.Replace(dependencies, "]", "", 1)
-		dependencies = strings.Replace(dependencies, " ", "", -1)
-		dependencies = strings.Replace(dependencies, "'", "", -1)
-		dependenciesArr := strings.Split(dependencies, ",")
-		//run a function for each dependecy in dependenciesArr
-		if !strings.Contains(dependencies, "Traceback(mostrecentcalllast)") && len(dependencies) != 0 {
-			for _, dep := range dependenciesArr {
-				//check if dependency starts with :
-				if strings.HasPrefix(dep, ":") && !buildFromSource {
-					continue
-				}
-				var command = dep
-				if strings.Contains(dep, "->") {
-					command = strings.Split(dep, "->")[1]
-					dep = strings.Split(dep, "->")[0]
-
-				}
-				fmt.Printf(color.YellowString("Package %s depends on %s\n"), pkg, dep)
-				cmd := exec.Command("which", strings.ReplaceAll(command, "'", ""))
-				r, w, err := os.Pipe()
-				if err != nil {
-					panic(err)
-				}
-				cmd.Stdout = w
-				cmd.Start()
-				w.Close()
-				cmd.Wait()
-				var buf bytes.Buffer
-				io.Copy(&buf, r)
-				_, err = os.Stat(fmt.Sprintf("%s/Barrells/%s.py", location, convertToReadableString(strings.ToLower(dep))))
-				if os.IsNotExist(err) {
-					color.Yellow("Not Downloadable By Ferment, Skipping")
-					continue
-				}
-				if buf.String() != "" {
-					fmt.Printf(color.YellowString("%s is already installed\n"), dep)
-					EditDepsTracker(dep, pkg)
-					fmt.Println(color.YellowString("Skipping"))
-					continue
-				}
-				if IsLib(dep) && checkIfPackageExists(dep) {
-					fmt.Printf(color.YellowString("%s is a library and is already installed\n"), dep)
-					EditDepsTracker(dep, pkg)
-					fmt.Println(color.YellowString("Skipping"))
-					continue
-				}
-
-				fmt.Printf(color.YellowString("Now Downloading %s\n"), dep)
-				s, err := spinner.New(spinner.Config{
-					Frequency:       100 * time.Millisecond,
-					CharSet:         spinner.CharSets[57],
-					Suffix:          color.GreenString(" %s", dep),
-					SuffixAutoColon: true,
-					Message:         "Getting Download Info",
-					StopCharacter:   "✓",
-					StopColors:      []string{"fgGreen"},
-					StopFailMessage: "Failed",
-					StopFailColors:  []string{"fgRed"},
-				})
-				if err != nil {
-					panic(err)
-				}
-				s.Start()
-
-				if UsingGit(dep, verbose) {
-					url := GetGitURL(dep, verbose)
-					err := DownloadFromGithub(url, fmt.Sprintf("%s/Installed/%s", location, dep), verbose)
-					if err != nil {
-						panic(err)
-					}
-					s.Stop()
-					installPackages(dep, verbose, true, pkg, buildFromSource)
-					//TestInstallationScript(dep, verbose)
-				} else if checkIfSetupPkg(dep) {
-					installPackageWithSetup(dep, s)
-
-					installPackages(dep, verbose, true, pkg, buildFromSource)
-
-				} else if checkifPrebuildSuitable(dep) {
-					if _, err := checkIfPrebuildApi(dep); err == nil {
-						prebuildDownloadFromAPI(dep, getFileFromLink(*getPrebuildURL(dep)), s)
-					} else {
-						DownloadFromTar(dep, *getPrebuildURL(dep), verbose, s)
-					}
-					s.Stop()
-					installPackages(dep, verbose, true, pkg, buildFromSource)
-				} else {
-					GetDownloadUrl(dep, verbose, s)
-					s.Stop()
-					installPackages(dep, verbose, true, pkg, buildFromSource)
-					// TestInstallationScript(dep, verbose)
-				}
-
-			}
-		}
-	} else {
-		pkg := parseFpkg(fmt.Sprintf("%s/Barrells/%s.fpkg", location, pkg))
-		for _, dep := range pkg.dependencies {
-			color.Yellow("Package %s depends on %s", pkg.name, dep)
-			if exec.Command("which", dep).Wait() == nil {
-				color.Yellow("%s is already installed or already exists", dep)
-				EditDepsTracker(dep, pkg.name)
-				color.Yellow("Skipping")
-				continue
-			}
-			if IsLib(dep) && checkIfPackageExists(dep) {
-				color.Yellow("%s is a library and is already installed", dep)
-				EditDepsTracker(dep, pkg.name)
-				color.Yellow("Skipping")
-				continue
-			}
-			s, err := spinner.New(spinner.Config{
-				Frequency:       100 * time.Millisecond,
-				CharSet:         spinner.CharSets[57],
-				Suffix:          color.GreenString(" %s", dep),
-				SuffixAutoColon: true,
-				Message:         "Getting Download Info",
-				StopCharacter:   "✓",
-				StopColors:      []string{"fgGreen"},
-				StopFailMessage: "Failed",
-				StopFailColors:  []string{"fgRed"},
-			})
-			if err != nil {
-				panic(err)
-			}
-			s.Start()
-			// TODO Add support for new fpkg format
-			if UsingGit(dep, verbose) {
-				url := GetGitURL(dep, verbose)
-				err := DownloadFromGithub(url, fmt.Sprintf("%s/Installed/%s", location, dep), verbose)
-				if err != nil {
-					panic(err)
-				}
-				s.Stop()
-				installPackages(dep, verbose, true, pkg.name, buildFromSource)
-				//TestInstallationScript(dep, verbose)
-			} else if !buildFromSource {
-				prebuildDownloadFromAPI(dep, getFileFromLink(*getPrebuildURL(dep)), s)
-				s.Stop()
-				installPackages(dep, verbose, true, pkg.name, buildFromSource)
-			} else {
-				GetDownloadUrl(dep, verbose, s)
-				s.Stop()
-				installPackages(dep, verbose, true, pkg.name, buildFromSource)
-				// TestInstallationScript(dep, verbose)
-			}
-
+		s.Start()
+		// TODO Fix the build from source
+		if !buildFromSource {
+			prebuildDownloadFromAPI(dep, getFileFromLink(*getPrebuildURL(dep)), s)
+			s.Stop()
+			installPackages(dep, verbose, true, pkg.name, buildFromSource)
+		} else {
+			GetDownloadUrl(dep, verbose, s)
+			s.Stop()
+			installPackages(dep, verbose, true, pkg.name, buildFromSource)
+			// TestInstallationScript(dep, verbose)
 		}
 
 	}
-	if e, _ := checkIfDepExists(pkg); e {
-		EditDepsTracker(pkg, installedBy)
+
+	if e, _ := checkIfDepExists(packageName); e {
+		EditDepsTracker(packageName, installedBy)
 	} else {
-		DepTrackerAdd(pkg, isDep, installedBy)
+		DepTrackerAdd(packageName, isDep, installedBy)
 	}
 	s, err := spinner.New(spinner.Config{
 		Frequency:       100 * time.Millisecond,
 		CharSet:         spinner.CharSets[57],
-		Suffix:          " Installing " + pkg,
+		Suffix:          " Installing " + packageName,
 		SuffixAutoColon: true,
 		Message:         "Install",
 		StopCharacter:   "✓",
@@ -574,17 +430,17 @@ func installPackages(pkg string, verbose string, isDep bool, installedBy string,
 	if err != nil {
 		panic(err)
 	}
-	s.Message(" Installing " + pkg)
-	s.StopMessage(color.GreenString("Installed %s", pkg))
+	s.Message(" Installing " + packageName)
+	s.StopMessage(color.GreenString("Installed %s", packageName))
 
 	s.Start()
-	if checkifPrebuildSuitable(pkg) && !buildFromSource {
-		InstallPrebuilds(pkg)
+	if checkifPrebuildSuitable(packageName) && !buildFromSource {
+		InstallPrebuilds(packageName)
 	} else {
-		RunInstallationScript(convertToReadableString(strings.ToLower(pkg)), verbose, convertToReadableString(strings.ToLower(pkg)))
+		RunInstallationScript(convertToReadableString(strings.ToLower(packageName)), verbose, convertToReadableString(strings.ToLower(packageName)))
 	}
-	version, _ := getVersion(pkg)
-	writeVersionFile(pkg, version)
+	version, _ = getVersion(packageName)
+	writeVersionFile(packageName, version)
 	s.Stop()
 	s, err = spinner.New(spinner.Config{
 		Frequency:         100 * time.Millisecond,
@@ -600,14 +456,14 @@ func installPackages(pkg string, verbose string, isDep bool, installedBy string,
 	if err != nil {
 		panic(err)
 	}
-	s.Message(" Installing Binaries For " + pkg)
+	s.Message(" Installing Binaries For " + packageName)
 	s.Start()
-	msg := InstallBinary(pkg, verbose)
+	msg := InstallBinary(packageName, verbose)
 	if msg == "No Binary" {
 		s.StopMessage(color.GreenString("No Binaries To Be Installed"))
 
 	} else {
-		s.StopMessage(color.GreenString("Installed Binary for %s", pkg))
+		s.StopMessage(color.GreenString("Installed Binary for %s", packageName))
 	}
 	s.Stop()
 
@@ -616,7 +472,7 @@ func installPackages(pkg string, verbose string, isDep bool, installedBy string,
 		CharSet:           spinner.CharSets[57],
 		Suffix:            " Testing",
 		SuffixAutoColon:   true,
-		Message:           " Testing " + pkg,
+		Message:           " Testing " + packageName,
 		StopCharacter:     "✓",
 		StopColors:        []string{"fgGreen"},
 		StopFailCharacter: "✗",
@@ -626,20 +482,20 @@ func installPackages(pkg string, verbose string, isDep bool, installedBy string,
 		panic(err)
 	}
 	s.Start()
-	result := TestInstallationScript(pkg, verbose)
+	result := TestInstallationScript(packageName, verbose)
 	if result {
 		s.Stop()
 	} else {
 		s.StopFail()
 	}
-	if caveats := getCaveats(pkg); caveats != nil {
+	if caveats := getCaveats(packageName); caveats != nil {
 		fmt.Println(color.YellowString("Caveats:\n"), *caveats)
 	}
 	os.Remove(location + "/ferment.lock")
 
 }
-func GetGitURL(pkg string, verbose string) string {
-	if verbose == "true" {
+func GetGitURL(pkg string, verbose bool) string {
+	if verbose {
 		fmt.Println("Looking For GitURl")
 	}
 	//Variables
@@ -676,7 +532,7 @@ func GetGitURL(pkg string, verbose string) string {
 			panic(err)
 		}
 		defer closer.Close()
-		if verbose == "true" {
+		if verbose {
 			fmt.Println("Starting STDIN pipe")
 		}
 		r, w, _ := os.Pipe()
@@ -696,7 +552,7 @@ func GetGitURL(pkg string, verbose string) string {
 		return buf.String()
 	}
 }
-func DownloadFromTar(pkg string, url string, verbose string, spinner *spinner.Spinner) string {
+func DownloadFromTar(pkg string, url string, verbose bool, spinner *spinner.Spinner) string {
 	resp, err := http.Get(url)
 	if err != nil {
 		spinner.StopFailMessage(color.WhiteString(err.Error()))
@@ -714,20 +570,20 @@ func DownloadFromTar(pkg string, url string, verbose string, spinner *spinner.Sp
 	}
 	fileName := strings.Split(url, "/")[len(strings.Split(url, "/"))-1]
 	defer resp.Body.Close()
-	if verbose == "true" {
+	if verbose {
 		fmt.Printf("Downloading Tar From %s\n", url)
 	}
 	//check if file exists in /tmp/ferment
 	if os.Getenv("FERMENT_NO_CACHE") == "true" {
-		os.Remove(fmt.Sprintf("/tmp/ferment/%s/%s", pkg, fileName))
+		os.Remove(fmt.Sprintf("%s/Barrells/%s", location, fileName))
 		spinner.Message("Removed Old Cache File")
 	}
-	if _, err := os.Stat(fmt.Sprintf("/tmp/ferment/%s/%s", pkg, fileName)); err == nil {
+	if _, err := os.Stat(fmt.Sprintf("%s/Barrells/%s", location, fileName)); err == nil {
 		spinner.Message(fmt.Sprintf("Using Cached %s", pkg))
 
 	} else {
-		os.MkdirAll(fmt.Sprintf("/tmp/ferment/%s", pkg), 0777)
-		f, err := os.OpenFile(fmt.Sprintf("/tmp/ferment/%s/%s", pkg, fileName), os.O_CREATE|os.O_WRONLY, 0777)
+		os.MkdirAll(fmt.Sprintf("%s/Barrells/", location), 0777)
+		f, err := os.OpenFile(fmt.Sprintf("%s/Barrells/%s", location, fileName), os.O_CREATE|os.O_WRONLY, 0777)
 		if err != nil {
 			spinner.StopFailMessage("Failed Creating Tar")
 			spinner.StopFail()
@@ -736,7 +592,7 @@ func DownloadFromTar(pkg string, url string, verbose string, spinner *spinner.Sp
 		progress := make(chan float64)
 		go func() {
 			for {
-				p := getDownloadProgress(fmt.Sprintf("/tmp/ferment/%s/%s", pkg, fileName), resp.ContentLength, resp)
+				p := getDownloadProgress(fmt.Sprintf("%s/Barrells/%s", location, fileName), resp.ContentLength, resp)
 				progress <- p
 				if p == 100 {
 					break
@@ -756,7 +612,7 @@ func DownloadFromTar(pkg string, url string, verbose string, spinner *spinner.Sp
 			signal.Notify(sigChan, syscall.SIGINT)
 			<-sigChan
 			spinner.Message("Download Cancelled Cleaning Up...")
-			os.Remove(fmt.Sprintf("/tmp/ferment/%s/%s", pkg, fileName))
+			os.Remove(fmt.Sprintf("%s/Barrells/%s", location, fileName))
 			spinner.StopFailMessage("Download Cancelled")
 			spinner.StopFail()
 			os.Exit(1)
@@ -778,11 +634,11 @@ func DownloadFromTar(pkg string, url string, verbose string, spinner *spinner.Sp
 		}
 
 	}
-	if verbose == "true" {
+	if verbose {
 		fmt.Println("Extracting Tar")
 	}
 	spinner.Message("Extracting Tar... (This Might Take a While)")
-	err = Untar(fmt.Sprintf("%s/Installed/", location), fmt.Sprintf("/tmp/ferment/%s/%s", pkg, fileName), pkg)
+	err = Untar(fmt.Sprintf("%s/Installed/", location), fmt.Sprintf("%s/Barrells/%s", location, fileName), pkg)
 
 	if err != nil {
 		spinner.StopFailMessage(err.Error())
@@ -791,8 +647,8 @@ func DownloadFromTar(pkg string, url string, verbose string, spinner *spinner.Sp
 	}
 	return fmt.Sprintf("%s/Installed/%s", location, pkg)
 }
-func GetDownloadUrl(pkg string, verbose string, s *spinner.Spinner) string {
-	if verbose == "true" {
+func GetDownloadUrl(pkg string, verbose bool, s *spinner.Spinner) string {
+	if verbose {
 		fmt.Println("Looking For GitURl")
 	}
 	//Variables
@@ -815,7 +671,7 @@ func GetDownloadUrl(pkg string, verbose string, s *spinner.Spinner) string {
 		panic(err)
 	}
 	defer closer.Close()
-	if verbose == "true" {
+	if verbose {
 		fmt.Println("Starting STDIN pipe")
 	}
 	r, w, _ := os.Pipe()
@@ -877,8 +733,8 @@ func Untar(dst string, downloadedFile string, pkg string) error {
 
 	return nil
 }
-func RunInstallationScript(pkg string, verbose string, cwd string) {
-	if verbose == "true" {
+func RunInstallationScript(pkg string, verbose bool, cwd string) {
+	if verbose {
 		fmt.Println("Running Installation Script")
 	}
 	location, err := os.Executable()
@@ -896,7 +752,7 @@ func RunInstallationScript(pkg string, verbose string, cwd string) {
 		panic(err)
 	}
 	defer closer.Close()
-	if verbose == "true" {
+	if verbose {
 		fmt.Println("Starting STDIN pipe")
 	}
 	r, w, _ := os.Pipe()
@@ -922,8 +778,8 @@ func RunInstallationScript(pkg string, verbose string, cwd string) {
 	buf.Reset()
 
 }
-func TestInstallationScript(pkg string, verbose string) bool {
-	if verbose == "true" {
+func TestInstallationScript(pkg string, verbose bool) bool {
+	if verbose {
 		fmt.Println("Running Installation Script")
 	}
 	location, err := os.Executable()
@@ -941,7 +797,7 @@ func TestInstallationScript(pkg string, verbose string) bool {
 		panic(err)
 	}
 	defer closer.Close()
-	if verbose == "true" {
+	if verbose {
 		fmt.Println("Starting STDIN pipe")
 	}
 	r, w, _ := os.Pipe()
@@ -964,8 +820,8 @@ func TestInstallationScript(pkg string, verbose string) bool {
 	return strings.Contains(buf.String(), "True")
 
 }
-func InstallBinary(pkg string, verbose string) string {
-	if verbose == "true" {
+func InstallBinary(pkg string, verbose bool) string {
+	if verbose {
 		fmt.Println("Installing Binary")
 	}
 	location, err := os.Executable()
@@ -983,7 +839,7 @@ func InstallBinary(pkg string, verbose string) string {
 		panic(err)
 	}
 	defer closer.Close()
-	if verbose == "true" {
+	if verbose {
 		fmt.Println("Starting STDIN pipe")
 	}
 	r, w, _ := os.Pipe()
@@ -1475,15 +1331,8 @@ func installPackageWithSetup(pkg string, spinner *yacspin.Spinner) {
 
 }
 func prebuildDownloadFromAPI(pkg string, file string, s *spinner.Spinner) {
-	version := os.Getenv("FERMENT_PKG_VERSION")
-
-	if version == "" {
-		body := getLatestVersionOfPrebuild(pkg)
-		version = body.LatestVersion
-	}
-	file = strings.Replace(file, ".tar", fmt.Sprintf("@%s.tar", version), 1)
 	url := fmt.Sprintf("https://api.fermentpkg.tech/barrells/download/%s/%s", pkg, file)
-	DownloadFromTar(pkg, url, "false", s)
+	DownloadFromTar(pkg, url, false, s)
 
 }
 
