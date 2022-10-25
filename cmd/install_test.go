@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"testing"
 
@@ -42,4 +43,19 @@ func TestExtractFerment(t *testing.T) {
 	if len(b) < 0 {
 		t.Fatal("no bytes read")
 	}
+}
+func TestHeadHttp(t *testing.T) {
+	r, err := http.Head("https://api.fermentpkg.tech/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if r.StatusCode < 200 || r.StatusCode > 299 {
+		t.Fatalf("expected 200-299, got %d", r.StatusCode)
+	}
+	t.Log(r)
+
 }
