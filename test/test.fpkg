@@ -17,8 +17,9 @@ build(){
 }
 
 test(){
-    $output=command -v
-    match output "v1"
+    $var=hello world
+    @output=command -v
+    match $output "v1"
 }
 install(){
     ln -s * /

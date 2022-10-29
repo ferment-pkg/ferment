@@ -3,16 +3,17 @@ package cmd
 import (
 	"fmt"
 	"io"
-	"net/http"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/spf13/afero"
+	"github.com/theckman/yacspin"
 )
 
 func TestParseFpkg(t *testing.T) {
 	home := os.Getenv("PWD")
-	pkg := parseFpkg(fmt.Sprintf("%s/../Barrells/qemu.fpkg", home))
+	pkg := parseFpkg(fmt.Sprintf("%s/../test/test.fpkg", home))
 	if pkg.name != "qemu" {
 		t.Fatalf("expected qemu, got %s", pkg.name)
 	}
@@ -40,22 +41,48 @@ func TestExtractFerment(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(b) < 0 {
+	if len(b) == 0 {
 		t.Fatal("no bytes read")
 	}
 }
-func TestHeadHttp(t *testing.T) {
-	r, err := http.Head("https://api.fermentpkg.tech/")
+func TestBuildFromSource(t *testing.T) {
+	spinner, err := yacspin.New(yacspin.Config{
+		Frequency:     100 * time.Millisecond,
+		CharSet:       yacspin.CharSets[9],
+		Suffix:        " Building from source",
+		StopCharacter: "✓",
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
+	var l, _ = os.Executable()
+	var location = l[:len(l)-len("/ferment")]
+	err = os.MkdirAll(fmt.Sprintf("%s/Installed/test", location), 0755)
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	if r.StatusCode < 200 || r.StatusCode > 299 {
-		t.Fatalf("expected 200-299, got %d", r.StatusCode)
+	spinner.Start()
+	runFpkgCommand("test", "test", `echo hello`, "Build", spinner)
+	spinner.Stop()
+}
+func TestTestFromSource(t *testing.T) {
+	spinner, err := yacspin.New(yacspin.Config{
+		Frequency:     100 * time.Millisecond,
+		CharSet:       yacspin.CharSets[9],
+		Suffix:        " Testing",
+		StopCharacter: "✓",
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
-	t.Log(r)
-
+	var l, _ = os.Executable()
+	var location = l[:len(l)-len("/ferment")]
+	err = os.MkdirAll(fmt.Sprintf("%s/Installed/test", location), 0755)
+	if err != nil {
+		t.Fatal(err)
+	}
+	spinner.Start()
+	runFpkgCommand("test", "test", `@1=apt
+	match $1 == "-"`, "Test", spinner)
+	spinner.Stop()
 }

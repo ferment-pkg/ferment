@@ -26,7 +26,6 @@ import (
 	"github.com/radovskyb/watcher"
 	"github.com/spf13/afero"
 	"github.com/spf13/cobra"
-	"github.com/theckman/yacspin"
 	spinner "github.com/theckman/yacspin"
 	"github.com/ulikunitz/xz"
 )
@@ -168,10 +167,13 @@ var installCmd = &cobra.Command{
 					panic(err)
 				}
 				s.Start()
-				resp, err := http.Get(fmt.Sprintf("https://api.fermentpkg.tech/barrells/info/%s/", pkg))
+				resp, err := http.Get(fmt.Sprintf("https://api.fermentpkg.tech/barrells/info/%s/%s.%s.ferment", pkg, pkg, os.Getenv("FERMENT_PKG_VERSION")))
 				if err != nil {
-					color.Red("Error getting package info")
-					os.Exit(1)
+					resp, err = http.Get(fmt.Sprintf("https://api.fermentpkg.tech/barrells/info/%s/%s.%s.%s.ferment", pkg, pkg, os.Getenv("FERMENT_PKG_VERSION"), runtime.GOARCH))
+					if err != nil {
+						color.Red("Error getting package info (TRIED UNIVERSAL AND SINGLE ARCH)")
+						os.Exit(1)
+					}
 				}
 				defer resp.Body.Close()
 
@@ -404,7 +406,7 @@ func installPackages(packageName string, verbose bool, isDep bool, installedBy s
 			s.Stop()
 			installPackages(dep, verbose, true, pkg.name, buildFromSource)
 		} else {
-			//TODO: REDO THIS FUNCTION
+			//TEST: REDO THIS FUNCTION
 			GetDownloadUrl(dep, version, verbose, s)
 			s.Stop()
 			installPackages(dep, verbose, true, pkg.name, buildFromSource)
@@ -436,37 +438,35 @@ func installPackages(packageName string, verbose bool, isDep bool, installedBy s
 	s.StopMessage(color.GreenString("Installed %s", packageName))
 
 	s.Start()
-	if checkifPrebuildSuitable(packageName) && !buildFromSource {
-		InstallPrebuilds(packageName)
+	if buildFromSource {
+		s.Suffix(" Building " + packageName)
+		//TEST build from source
+		runFpkgCommand(name, version, pkg.build, "Build", s)
+		s.Suffix(" Installing " + packageName)
 	} else {
-		RunInstallationScript(convertToReadableString(strings.ToLower(packageName)), verbose, convertToReadableString(strings.ToLower(packageName)))
+		afero.Walk(fs, "built", func(path string, info os.FileInfo, err error) error {
+			f, err := fs.Open(path)
+			if err != nil {
+				panic(err)
+
+			}
+			defer f.Close()
+			if info.IsDir() {
+				os.MkdirAll(path, 0755)
+				return nil
+			}
+			fout, err := os.OpenFile(fmt.Sprintf("%s/Installed/%s/%s", location, name, strings.Replace(path, "built", "", 1)), os.O_WRONLY|os.O_CREATE, 0666)
+			if err != nil {
+				panic(err)
+			}
+			defer fout.Close()
+			io.Copy(fout, f)
+			return nil
+		})
 	}
+	runFpkgCommand(name, version, pkg.install, "Install", s)
 	version, _ = getVersion(packageName)
 	writeVersionFile(packageName, version)
-	s.Stop()
-	s, err = spinner.New(spinner.Config{
-		Frequency:         100 * time.Millisecond,
-		CharSet:           spinner.CharSets[57],
-		Suffix:            " Binary",
-		SuffixAutoColon:   true,
-		Message:           "Install",
-		StopColors:        []string{"fgGreen"},
-		StopCharacter:     "✓",
-		StopFailCharacter: "✗",
-		StopFailColors:    []string{"fgRed"},
-	})
-	if err != nil {
-		panic(err)
-	}
-	s.Message(" Installing Binaries For " + packageName)
-	s.Start()
-	msg := InstallBinary(packageName, verbose)
-	if msg == "No Binary" {
-		s.StopMessage(color.GreenString("No Binaries To Be Installed"))
-
-	} else {
-		s.StopMessage(color.GreenString("Installed Binary for %s", packageName))
-	}
 	s.Stop()
 
 	s, err = spinner.New(spinner.Config{
@@ -484,14 +484,11 @@ func installPackages(packageName string, verbose bool, isDep bool, installedBy s
 		panic(err)
 	}
 	s.Start()
-	result := TestInstallationScript(packageName, verbose)
-	if result {
-		s.Stop()
-	} else {
-		s.StopFail()
-	}
-	if caveats := getCaveats(packageName); caveats != nil {
-		fmt.Println(color.YellowString("Caveats:\n"), *caveats)
+	//TEST Test Script
+	runFpkgCommand(name, version, pkg.test, "Test", s)
+
+	if pkg.caveats != "nil" {
+		fmt.Println(color.YellowString("Caveats:\n"), pkg.caveats)
 	}
 	os.Remove(location + "/ferment.lock")
 
@@ -592,7 +589,7 @@ func DownloadFromTar(pkg string, url string, verbose bool, spinner *spinner.Spin
 	return fmt.Sprintf("%s/Installed/%s", location, pkg)
 }
 
-// TODO Redo in favour of fpkg
+// TEST Redo in favour of fpkg
 func GetDownloadUrl(pkgName string, version string, verbose bool, s *spinner.Spinner) string {
 	if verbose {
 		fmt.Println("Looking For GitURl")
@@ -624,9 +621,16 @@ func GetDownloadUrl(pkgName string, version string, verbose bool, s *spinner.Spi
 		s.StopFail()
 		os.Exit(1)
 	}
-	//TODO Support git downloads
 	if strings.HasSuffix(sourceChosen, ".git") {
-
+		_, err := git.PlainClone(fmt.Sprintf("%s/Installed/%s", location, pkgName), false, &git.CloneOptions{
+			URL: sourceChosen,
+		})
+		if err != nil {
+			s.StopFailMessage(err.Error())
+			s.StopFail()
+			os.Exit(1)
+		}
+		return fmt.Sprintf("%s/Installed/%s", location, pkgName)
 	}
 	path := DownloadFromTar(pkgName, sourceChosen, verbose, s)
 	return path
@@ -672,51 +676,6 @@ func Untar(dst string, downloadedFile string, pkg string) error {
 	}
 
 	return nil
-}
-func RunInstallationScript(pkg string, verbose bool, cwd string) {
-	if verbose {
-		fmt.Println("Running Installation Script")
-	}
-	location, err := os.Executable()
-	location = location[:len(location)-len("/ferment")]
-	if err != nil {
-		panic(err)
-	}
-	content, err := os.ReadFile(fmt.Sprintf("%s/Barrells/%s.py", location, convertToReadableString(strings.ToLower(pkg))))
-	if err != nil {
-		panic(err)
-	}
-	cmd := exec.Command("python3")
-	closer, err := cmd.StdinPipe()
-	if err != nil {
-		panic(err)
-	}
-	defer closer.Close()
-	if verbose {
-		fmt.Println("Starting STDIN pipe")
-	}
-	r, w, _ := os.Pipe()
-	defer w.Close()
-	cmd.Stdout = w
-	cmd.Dir = fmt.Sprintf("%s/Barrells", location)
-	cmd.Start()
-	closer.Write(content)
-	closer.Write([]byte("\n"))
-
-	io.WriteString(closer, fmt.Sprintf("pkg=%s()\n", convertToReadableString(strings.ToLower(pkg))))
-	io.WriteString(closer, fmt.Sprintf(`pkg.cwd="%s/Installed/%s"`+"\n", location, cwd))
-	done := make(chan bool)
-	go magicWatcher(pkg, done)
-	io.WriteString(closer, "pkg.install()\n")
-	closer.Close()
-	w.Close()
-	cmd.Wait()
-	done <- true
-	var buf bytes.Buffer
-	io.Copy(&buf, r)
-	//print nothing
-	buf.Reset()
-
 }
 func TestInstallationScript(pkg string, verbose bool) bool {
 	if verbose {
@@ -1017,42 +976,6 @@ func InstallPrebuilds(pkg string) {
 	}
 	io.Copy(f, r)
 }
-func getSaidDeps(pkg string) []string {
-	os.Chdir(location)
-	c, err := os.ReadFile(fmt.Sprintf("Barrells/%s.py", convertToReadableString(strings.ToLower(pkg))))
-	if err != nil {
-		color.RedString("ERROR: %s", err)
-		os.Exit(1)
-	}
-	cmd := exec.Command("python3")
-	closer, err := cmd.StdinPipe()
-	if err != nil {
-		panic(err)
-	}
-	defer closer.Close()
-	r, w, _ := os.Pipe()
-	cmd.Stdout = w
-	cmd.Stderr = w
-	cmd.Dir = fmt.Sprintf("%s/Barrells", location)
-	cmd.Start()
-	closer.Write(c)
-	closer.Write([]byte("\n"))
-	io.WriteString(closer, fmt.Sprintf("pkg=%s()\n", convertToReadableString(strings.ToLower(pkg))))
-	io.WriteString(closer, "print(pkg.dependencies)\n")
-	closer.Close()
-	w.Close()
-	cmd.Wait()
-	var buf bytes.Buffer
-	io.Copy(&buf, r)
-	dependencies := strings.Split(buf.String(), "\n")[0]
-	dependencies = strings.Replace(dependencies, "[", "", 1)
-	dependencies = strings.Replace(dependencies, "]", "", 1)
-	dependencies = strings.Replace(dependencies, " ", "", -1)
-	dependencies = strings.Replace(dependencies, "'", "", -1)
-	dependencies = strings.Replace(dependencies, `"`, "", -1)
-	return strings.Split(dependencies, ",")
-
-}
 func checkifPrebuildSuitable(pkg string) bool {
 	arch := strings.ToLower(runtime.GOARCH)
 	c, err := os.ReadFile(fmt.Sprintf("%s/Barrells/%s.py", location, convertToReadableString(pkg)))
@@ -1110,166 +1033,6 @@ func checkifPrebuildSuitable(pkg string) bool {
 	return true
 
 }
-func getPrebuildURL(pkg string) *string {
-	arch := strings.ToLower(runtime.GOARCH)
-	c, err := os.ReadFile(fmt.Sprintf("%s/Barrells/%s.py", location, convertToReadableString(pkg)))
-	if err != nil {
-		color.RedString("ERROR: %s", err)
-		os.Exit(1)
-	}
-	content := string(c)
-	lines := strings.Split(content, "\n")
-	var isPrebuild bool
-	for _, line := range lines {
-		if !strings.ContainsAny(line, "=") {
-			continue
-		}
-		l := strings.Split(line, "=")
-		if strings.Contains(l[0], "self.prebuild") && !strings.Contains(l[0], "None") {
-			isPrebuild = true
-			break
-		}
-
-	}
-	if !isPrebuild {
-		return nil
-	}
-	cmd := exec.Command("python3")
-	closer, err := cmd.StdinPipe()
-	if err != nil {
-		panic(err)
-	}
-	defer closer.Close()
-	r, w, _ := os.Pipe()
-	cmd.Stdout = w
-	cmd.Stderr = w
-	cmd.Dir = fmt.Sprintf("%s/Barrells", location)
-	cmd.Start()
-	closer.Write(c)
-	closer.Write([]byte("\n"))
-	io.WriteString(closer, fmt.Sprintf("pkg=%s()\n", convertToReadableString(strings.ToLower(pkg))))
-	io.WriteString(closer, "print(pkg.prebuild.amd64)\n")
-	io.WriteString(closer, "print(pkg.prebuild.arm64)\n")
-	closer.Close()
-	w.Close()
-	cmd.Wait()
-	var buf bytes.Buffer
-	io.Copy(&buf, r)
-	arm64 := strings.Split(buf.String(), "\n")[1]
-	amd64 := strings.Split(buf.String(), "\n")[0]
-	if arch == "arm64" && strings.Contains(arm64, "no attribute") {
-		return nil
-	}
-
-	if arch == "amd64" && strings.Contains(amd64, "no attribute") {
-		return nil
-	}
-	if arch == "amd64" {
-		return &amd64
-	}
-	if arch == "arm64" {
-		return &arm64
-	}
-	return nil
-}
-func checkIfSetupPkg(pkg string) bool {
-	c, err := os.ReadFile(fmt.Sprintf("%s/Barrells/%s.py", location, convertToReadableString(pkg)))
-	if err != nil {
-		color.RedString("ERROR: %s", err)
-		os.Exit(1)
-	}
-	content := string(c)
-	lines := strings.Split(content, "\n")
-	var isSetup bool = false
-	for _, line := range lines {
-		if !strings.ContainsAny(line, "=") {
-			continue
-		}
-		l := strings.Split(line, "=")
-		if strings.Contains(l[0], "self.setup") && strings.Contains(l[1], "True") {
-			isSetup = true
-			break
-		}
-
-	}
-	return isSetup
-}
-func installPackageWithSetup(pkg string, spinner *yacspin.Spinner) {
-	c, err := os.ReadFile(fmt.Sprintf("%s/Barrells/%s.py", location, convertToReadableString(pkg)))
-	if err != nil {
-		spinner.Message(color.RedString("ERROR: %s", err))
-		os.Exit(1)
-	}
-	cmd := exec.Command("python3")
-	closer, err := cmd.StdinPipe()
-	if err != nil {
-		panic(err)
-	}
-	defer closer.Close()
-	r, w, _ := os.Pipe()
-	cmd.Stdout = w
-	cmd.Stderr = w
-	cmd.Dir = fmt.Sprintf("%s/Barrells", location)
-	cmd.Start()
-	closer.Write(c)
-	closer.Write([]byte("\n"))
-	io.WriteString(closer, fmt.Sprintf("pkg=%s()\n", convertToReadableString(strings.ToLower(pkg))))
-	io.WriteString(closer, `print(f"url:{pkg.url}")`+"\n")
-	closer.Close()
-	w.Close()
-	cmd.Wait()
-	var buf bytes.Buffer
-	io.Copy(&buf, r)
-	content := strings.Split(buf.String(), "\n")
-	var i int
-	for index, line := range content {
-		s := strings.Replace(line, "url:", "", 1)
-		if IsUrl(s) {
-			i = index
-			break
-		}
-	}
-	url := content[i]
-	var sh bool
-	var interactive bool
-	if strings.Contains(url, "sh:") {
-		sh = true
-	}
-	if strings.Contains(url, "interactive:") {
-		interactive = true
-	}
-	url = strings.Replace(url, "sh:", "", 1)
-	url = strings.Replace(url, "interactive:", "", 1)
-	url = strings.Replace(url, "url:", "", 1)
-	os.Mkdir(fmt.Sprintf("%s/Installed/%s", location, convertToReadableString(pkg)), 0755)
-	if sh {
-		spinner.Message(color.GreenString("Package %s is to be setup with sh and curl...", pkg))
-
-		cmd = exec.Command("curl", "-sSLo", fmt.Sprintf("/tmp/%s-setup.sh", pkg), url)
-		cmd.Dir = fmt.Sprintf("%s/Installed/%s", location, pkg)
-		err = cmd.Run()
-		if err != nil {
-			color.Red("ERROR - CURL: %s", err)
-			os.Exit(1)
-		}
-		cmd = exec.Command("sh", fmt.Sprintf("/tmp/%s-setup.sh", pkg))
-		cmd.Dir = fmt.Sprintf("%s/Installed/%s", location, pkg)
-		if interactive {
-			spinner.Pause()
-			cmd.Stdout = os.Stdout
-			cmd.Stderr = os.Stderr
-			cmd.Stdin = os.Stdin
-		}
-		err = cmd.Run()
-		if err != nil {
-			spinner.Message(color.RedString("ERROR - SH: %s", err))
-			os.Exit(1)
-		}
-
-	}
-	spinner.Stop()
-
-}
 func prebuildDownloadFromAPI(pkg string, file string, s *spinner.Spinner) {
 	url := fmt.Sprintf("https://api.fermentpkg.tech/barrells/download/%s/%s", pkg, file)
 	DownloadFromTar(pkg, url, false, s)
@@ -1297,78 +1060,6 @@ func getLatestVersionOfPrebuild(pkg string) body {
 	return body
 }
 
-// Returns the links that wants to be downloaded or nil if is not prebuildapi
-// Works well with the prebuildDownloadFromAPI function
-func checkIfPrebuildApi(pkg string) (data *struct {
-	arm64           string
-	amd64           string
-	usingFermentTag struct {
-		amd64 bool
-		arm64 bool
-	}
-}, Error error) {
-	c, err := os.ReadFile(fmt.Sprintf("%s/Barrells/%s.py", location, convertToReadableString(pkg)))
-	if err != nil {
-		return nil, err
-	}
-	content := string(c)
-	lines := strings.Split(content, "\n")
-	var amd64Download string
-	var arm64Download string
-	for _, line := range lines {
-		if strings.Contains(line, "self.arm64") {
-			f := strings.Split(line, "=")
-			arm64Download = strings.Replace(f[1], `"`, "", -1)
-			arm64Download = strings.Replace(arm64Download, `'`, "", -1)
-
-		}
-		if strings.Contains(line, "self.amd64") {
-			f := strings.Split(line, "=")
-			amd64Download = strings.Replace(f[1], `"`, "", -1)
-			amd64Download = strings.Replace(amd64Download, `'`, "", -1)
-
-		}
-	}
-	if amd64Download != "" || arm64Download != "" {
-		d := struct {
-			amd64 bool
-			arm64 bool
-		}{}
-		for i, v := range []string{amd64Download, arm64Download} {
-			if strings.Contains(v, "ferment://") {
-				if i == 0 {
-					d.amd64 = true
-				} else {
-					d.arm64 = true
-				}
-			}
-		}
-		return &struct {
-			arm64           string
-			amd64           string
-			usingFermentTag struct {
-				amd64 bool
-				arm64 bool
-			}
-		}{arm64Download, amd64Download, d}, nil
-	}
-
-	return nil, errors.New("no prebuild api found")
-}
-
-// This function allows for you to extract the tar from the download link
-// Example Download Link: ferment://<pkg>@<file>
-func getFileFromLink(link string) string {
-	l := strings.Split(link, "@")
-	return l[1]
-}
-func getCaveats(pkg string) *string {
-	if caveats, err := executeQuickPython(fmt.Sprintf("import %s;pkg=%s.%s();print(pkg.caveats)", convertToReadableString(pkg), convertToReadableString(pkg), convertToReadableString(pkg))); err != nil {
-		return nil
-	} else {
-		return &caveats
-	}
-}
 func executeQuickPython(code string) (string, error) {
 	cmd := exec.Command("python3", "-c", code)
 	cmd.Dir = fmt.Sprintf("%s/Barrells", location)
@@ -1570,46 +1261,8 @@ func parseFpkg(file string) pkg {
 	}
 	return pkg
 }
-func checkIfFpkg(filename string) bool {
-	if strings.Contains(filename, ".fpkg") {
-		return true
-	}
-	return false
-}
-func checkifFpkgExists(pkg string) string {
-	//look through barrells directory
-	files, err := os.ReadDir(fmt.Sprintf("%s/Barrels", location))
-	if err != nil {
-		panic(err)
-	}
-	for _, file := range files {
-		//check if the file exists
-		if _, err := os.Stat(fmt.Sprintf("%s/Barrels/%s/%s.fpkg", location, file.Name(), pkg)); err == nil {
-			return fmt.Sprintf("%s/Barrels/%s/%s.fpkg", location, file.Name(), pkg)
-		}
-	}
-	return ""
-}
-func getPrebuildUrlFromFpkg(pkg string) string {
-	//look through barrells directory
-	files, err := os.ReadDir(fmt.Sprintf("%s/Barrels", location))
-	if err != nil {
-		panic(err)
-	}
-	for _, file := range files {
-		//check if the file exists
-		if _, err := os.Stat(fmt.Sprintf("%s/Barrels/%s/%s.fpkg", location, file.Name(), pkg)); err == nil {
-			//get the fpkg file
-			fpkgFile := parseFpkg(fmt.Sprintf("%s/Barrels/%s/%s.fpkg", location, file.Name(), pkg))
-			//get the url
-			return fpkgFile.source[0]
-		}
-	}
-	return ""
-}
 
 // TEST: DownloadPackage Function
-
 // Wrapper for downloadFromPrebuild
 func downloadPackage(packageName string, version string, s *spinner.Spinner) {
 	resp, err := http.Get(fmt.Sprintf("https://api.fermentpkg.tech/barrells/info/%s", packageName))
@@ -1643,4 +1296,223 @@ func downloadPackage(packageName string, version string, s *spinner.Spinner) {
 		prebuildDownloadFromAPI(packageName, fmt.Sprintf("%s@%s.%s.ferment", packageName, version, arch), s)
 	}
 
+}
+func runFpkgCommand(pkgName string, version string, command string, action string, s *spinner.Spinner) {
+	s.Message(fmt.Sprintf("Parsing %s Command...", action))
+	type Var struct {
+		Name  string
+		Value string
+		Bool  bool
+	}
+	vars := []Var{}
+	//set the variables
+	vars = append(vars, Var{Name: "version", Value: version})
+	code := strings.Split(command, "\n")
+	var index int
+	for i, line := range code {
+		if index != i {
+			continue
+		}
+		//remove indent until first character
+		line = strings.TrimLeft(line, "\t")
+		//check if line starts with $
+		if strings.HasPrefix(line, "$") {
+			//get the variable name
+			varName := strings.Replace(strings.Split(line, "=")[0], "$", "", -1)
+			//get the variable value
+			varValue := strings.Join(strings.Split(line, "=")[1:], "=")
+			if strings.HasPrefix(varValue, "$") {
+				varValue = strings.Replace(varValue, "$", "", -1)
+				for _, v := range vars {
+					if v.Name == varValue {
+						varValue = v.Value
+					}
+				}
+			}
+			//add the variable to the vars array
+			vars = append(vars, Var{Name: varName, Value: varValue})
+			index++
+			continue
+		}
+		//check if line starts with @
+		if strings.HasPrefix(line, "@") {
+			//get the variable name
+			varName := strings.Replace(strings.Split(line, "=")[0], "@", "", -1)
+			//get the variable value
+			varValue := strings.Split(line, "=")[1]
+			//remove the quotes at the index 0 and at the last index but not the ones in between
+
+			args := strings.Split(varValue, " ")
+			var command []string
+			for _, arg := range args {
+				if strings.HasPrefix(arg, "$") {
+					arg = strings.Replace(arg, "$", "", -1)
+					for _, v := range vars {
+						if v.Name == arg {
+							arg = v.Value
+						}
+					}
+				}
+
+				command = append(command, arg)
+			}
+			command[0] = strings.Replace(command[0], "\"", "", 1)
+			//remove quote mark at the end of the string
+			command[len(command)-1] = strings.TrimSuffix(command[len(command)-1], "\"")
+			//run the command
+			s.Message(fmt.Sprintf("Running Command: %s", strings.Join(command, " ")))
+			//check if the command is a built in command and if it is not run the code below
+			if command[0] == "match" {
+				identifier := []string{"==", "<", ">", "!="}
+				var identifierFound int
+				for i, id := range identifier {
+					if command[2] == id {
+						identifierFound = i
+						break
+					}
+				}
+				comparedTo := strings.Join(command[3:], " ")
+				comparedTo = strings.Replace(comparedTo, "\"", "", -1)
+				if identifierFound == 0 {
+					//compare the values of index 2 and 3
+					vars = append(vars, Var{Name: varName, Bool: command[1] == comparedTo})
+					index++
+					continue
+				}
+				if identifierFound == 1 {
+					//compare the values of index 2 and 3
+					vars = append(vars, Var{Name: varName, Bool: command[1] < comparedTo})
+					index++
+					continue
+				}
+				if identifierFound == 2 {
+					//compare the values of index 2 and 3
+					vars = append(vars, Var{Name: varName, Bool: command[1] > comparedTo})
+					index++
+					continue
+				}
+				if identifierFound == 3 {
+					//compare the values of index 2 and 3
+					vars = append(vars, Var{Name: varName, Bool: command[1] != comparedTo})
+					index++
+					continue
+				}
+				s.StopFailMessage("Identifier for match invalid")
+				s.StopFail()
+				os.Exit(1)
+
+			}
+			cmd := exec.Command(command[0], command[1:]...)
+			cmd.Dir = fmt.Sprintf("%s/Installed/%s", location, pkgName)
+			//save stdout as buff
+			var buff bytes.Buffer
+			cmd.Stdout = &buff
+			err := cmd.Run()
+			if err != nil {
+				s.StopFailMessage(err.Error())
+				s.StopFail()
+				os.Exit(1)
+			}
+			//add the variable to the vars array
+			vars = append(vars, Var{Name: varName, Value: strings.TrimSuffix(buff.String(), "\n")})
+			index++
+			continue
+
+		}
+		if strings.HasPrefix(line, "arm64: ") || strings.HasPrefix(line, "amd64: ") {
+			if strings.HasPrefix(line, "arm64: ") && runtime.GOARCH == "arm64" {
+				index++
+				continue
+
+			}
+			if strings.HasPrefix(line, "amd64: ") && runtime.GOARCH == "amd64" {
+				index++
+				continue
+			}
+			//find where double indent ends
+			for i, line := range code[index:] {
+				if !strings.HasPrefix(line, "\t\t") {
+					index = i
+					break
+				}
+			}
+			continue
+
+		}
+		//run the command
+		s.Message(fmt.Sprintf("Running Command: %s", line))
+		args := strings.Split(line, " ")
+		var command []string
+		for _, arg := range args {
+			if strings.HasPrefix(arg, "$") {
+				arg = strings.Replace(arg, "$", "", -1)
+				for _, v := range vars {
+					if v.Name == arg {
+						arg = v.Value
+					}
+				}
+			}
+			command = append(command, arg)
+		}
+		if command[0] == "match" && strings.ToLower(action) == "test" {
+			identifier := []string{"==", "<", ">", "!="}
+			var identifierFound int
+			for i, id := range identifier {
+				if command[2] == id {
+					identifierFound = i
+					break
+				}
+
+			}
+			comparedTo := strings.Join(command[3:], " ")
+			comparedTo = strings.Replace(comparedTo, "\"", "", -1)
+			if identifierFound == 0 && command[1] != comparedTo {
+				//compare the values of index 2 and 3
+				message := fmt.Sprintf("Test Failed: %s %s %s", command[1], command[2], command[3])
+				s.StopFailMessage(message)
+				s.StopFail()
+				os.Exit(1)
+
+			}
+			if identifierFound == 1 && command[1] >= comparedTo {
+				//compare the values of index 2 and 3
+				message := fmt.Sprintf("Test Failed: %s %s %s", command[1], command[2], command[3])
+				s.StopFailMessage(message)
+				s.StopFail()
+				os.Exit(1)
+			}
+			if identifierFound == 2 && command[1] <= comparedTo {
+				//compare the values of index 2 and 3
+				message := fmt.Sprintf("Test Failed: %s %s %s", command[1], command[2], command[3])
+				s.StopFailMessage(message)
+				s.StopFail()
+				os.Exit(1)
+
+			}
+			if identifierFound == 3 && command[1] == comparedTo {
+				//compare the values of index 2 and 3
+				message := fmt.Sprintf("Test Failed: %s %s %s", command[1], command[2], command[3])
+				s.StopFailMessage(message)
+				s.StopFail()
+				os.Exit(1)
+			}
+			if identifierFound > len(identifier) {
+				s.StopFailMessage("Identifier for match invalid")
+				s.StopFail()
+				os.Exit(1)
+			}
+			break
+
+		}
+		cmd := exec.Command(command[0], command[1:]...)
+		cmd.Dir = fmt.Sprintf("%s/Installed/%s", location, pkgName)
+		err := cmd.Run()
+		if err != nil {
+			s.StopFailMessage(err.Error())
+			s.StopFail()
+			os.Exit(1)
+		}
+		index++
+	}
+	s.Message(fmt.Sprintf("%s Complete!", action))
 }
