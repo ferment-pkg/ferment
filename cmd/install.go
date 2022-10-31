@@ -167,9 +167,9 @@ var installCmd = &cobra.Command{
 					panic(err)
 				}
 				s.Start()
-				resp, err := http.Get(fmt.Sprintf("https://api.fermentpkg.tech/barrells/info/%s/%s.%s.ferment", pkg, pkg, os.Getenv("FERMENT_PKG_VERSION")))
+				resp, err := http.Get(fmt.Sprintf("https://api.fermentpkg.tech/barrells/info/%s/%s@%s.ferment", pkg, pkg, os.Getenv("FERMENT_PKG_VERSION")))
 				if err != nil {
-					resp, err = http.Get(fmt.Sprintf("https://api.fermentpkg.tech/barrells/info/%s/%s.%s.%s.ferment", pkg, pkg, os.Getenv("FERMENT_PKG_VERSION"), runtime.GOARCH))
+					resp, err = http.Get(fmt.Sprintf("https://api.fermentpkg.tech/barrells/info/%s/%s@%s_%s.ferment", pkg, pkg, os.Getenv("FERMENT_PKG_VERSION"), runtime.GOARCH))
 					if err != nil {
 						color.Red("Error getting package info (TRIED UNIVERSAL AND SINGLE ARCH)")
 						os.Exit(1)
@@ -185,7 +185,7 @@ var installCmd = &cobra.Command{
 
 				} else {
 					s.Message("Downloading From API (single-arch)")
-					prebuildDownloadFromAPI(pkg, fmt.Sprintf("%s@%s.%s.ferment", pkg, os.Getenv("FERMENT_PKG_VERSION"), runtime.GOARCH), s)
+					prebuildDownloadFromAPI(pkg, fmt.Sprintf("%s@%s_%s.ferment", pkg, os.Getenv("FERMENT_PKG_VERSION"), runtime.GOARCH), s)
 				}
 
 				s.Stop()
@@ -340,7 +340,7 @@ func installPackages(packageName string, verbose bool, isDep bool, installedBy s
 	location = location[:len(location)-len("/ferment")]
 	name := strings.Split(convertToReadableString(strings.ToLower(packageName)), "@")[0]
 	version := strings.Split(convertToReadableString(strings.ToLower(packageName)), "@")[1]
-	_, err = os.ReadFile(fmt.Sprintf("%s/Barrells/%s.ferment", location, name))
+	_, err = os.ReadFile(fmt.Sprintf("%s/Barrells/%s.ferment", location, packageName))
 
 	if err != nil {
 		if strings.Contains(err.Error(), "no such file or directory") {
@@ -352,7 +352,7 @@ func installPackages(packageName string, verbose bool, isDep bool, installedBy s
 
 	// pkg.ferment is a tar.xz file
 	// extract to fs
-	fs, err := extractFerment(fmt.Sprintf("%s/Barrells/%s.ferment", location, name))
+	fs, err := extractFerment(fmt.Sprintf("%s/Barrells/%s.ferment", location, packageName))
 	if err != nil {
 		panic(err)
 	}
@@ -1293,7 +1293,7 @@ func downloadPackage(packageName string, version string, s *spinner.Spinner) {
 		prebuildDownloadFromAPI(packageName, fmt.Sprintf("%s@%s.ferment", packageName, version), s)
 	} else {
 		arch := runtime.GOARCH
-		prebuildDownloadFromAPI(packageName, fmt.Sprintf("%s@%s.%s.ferment", packageName, version, arch), s)
+		prebuildDownloadFromAPI(packageName, fmt.Sprintf("%s@%s_%s.ferment", packageName, version, arch), s)
 	}
 
 }
