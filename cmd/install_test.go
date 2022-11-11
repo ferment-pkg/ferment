@@ -82,7 +82,40 @@ func TestTestFromSource(t *testing.T) {
 		t.Fatal(err)
 	}
 	spinner.Start()
-	runFpkgCommand("test", "test", `@1=apt
-	match $1 == "-"`, "Test", spinner)
+	runFpkgCommand("test", "test", `@1=echo e
+	match $1 == "e"`, "Test", spinner)
 	spinner.Stop()
+}
+func TestFileMan(t *testing.T) {
+	spinner, err := yacspin.New(yacspin.Config{
+		Frequency:     100 * time.Millisecond,
+		CharSet:       yacspin.CharSets[9],
+		Suffix:        " Testing",
+		StopCharacter: "✓",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var l, _ = os.Executable()
+	var location = l[:len(l)-len("/ferment")]
+	err = os.MkdirAll(fmt.Sprintf("%s/Installed/test", location), 0755)
+	if err != nil {
+		t.Fatal(err)
+	}
+	spinner.Start()
+	runFpkgCommand("test", "test", `fileMan write /tmp/test.txt Hello World\n`, "Test", spinner)
+	spinner.Stop()
+	//check if /tmp/test.txt has the text "Hello World"
+	f, err := os.Open("/tmp/test.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := io.ReadAll(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(b) != "Hello World\n" {
+		t.Fatal("fileMan failed actual:", string(b))
+	}
+
 }

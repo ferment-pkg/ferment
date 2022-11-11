@@ -1504,6 +1504,43 @@ func runFpkgCommand(pkgName string, version string, command string, action strin
 			break
 
 		}
+		if command[0] == "fileMan" {
+			mode := command[1]
+			if mode != "append" && mode != "write" {
+				s.StopFailMessage("Invalid fileMan mode")
+				s.StopFail()
+				os.Exit(1)
+			}
+			file := command[2]
+			contents := command[3:]
+			content := strings.Join(contents, " ")
+			var f *os.File
+			var err error
+			if mode == "append" {
+				f, err = os.OpenFile(file, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+			} else {
+				f, err = os.OpenFile(file, os.O_CREATE|os.O_RDWR|os.O_TRUNC, 0644)
+			}
+			//remove any literal \n
+			content = strings.Replace(content, `\n`, "\n", -1)
+			if err != nil {
+				s.StopFailMessage(err.Error())
+				s.StopFail()
+				os.Exit(1)
+			}
+			if _, err := f.WriteString(content); err != nil {
+				s.StopFailMessage(err.Error())
+				s.StopFail()
+				os.Exit(1)
+			}
+			if err := f.Close(); err != nil {
+				s.StopFailMessage(err.Error())
+				s.StopFail()
+				os.Exit(1)
+			}
+			break
+
+		}
 		cmd := exec.Command(command[0], command[1:]...)
 		cmd.Dir = fmt.Sprintf("%s/Installed/%s", location, pkgName)
 		err := cmd.Run()
